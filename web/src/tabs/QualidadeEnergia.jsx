@@ -106,7 +106,7 @@ export default function QualidadeEnergia() {
         <div className="panel">
           <div className="panel__head">Conformidade IEEE 519 / PRODIST</div>
           <div style={{height:'calc(100% - 38px)', display:'flex', alignItems:'center', justifyContent:'center', gap:20, padding:8}}>
-            <PieChart width={130} height:130>
+            <PieChart width={130} height={130}>
               <Pie data={CONF_PIE} cx={60} cy={60} innerRadius={38} outerRadius={60} dataKey="value" paddingAngle={2}>
                 {CONF_PIE.map((e,i)=><Cell key={i} fill={e.color}/>)}
               </Pie>

@@ -35,3 +35,6 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Web build/dependency outputs
+web/node_modules/
+web/dist/
