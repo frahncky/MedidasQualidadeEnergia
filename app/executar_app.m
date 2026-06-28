@@ -5,4 +5,4 @@ appDir = fileparts(mfilename('fullpath'));
 root = fileparts(appDir);
 addpath(appDir);
 addpath(fullfile(root,'src'));
-app = PlataformaMedidasQualidadeEnergiaApp();
+app = SMQEApp();

@@ -1,4 +1,4 @@
-classdef PlataformaMedidasQualidadeEnergiaApp < handle
+classdef SMQEApp < handle
     % SMQE - Simulador de Medicao e Qualidade de Energia
     % Interface programatica no estilo App Designer.
     % Autor: Francisco S. Viana / gerado para disciplina de Medidas e Qualidade de Energia.
@@ -158,8 +158,8 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createUI(app)
-            app.UIFigure = uifigure('Name','SMQE - Simulador de Medição e Qualidade de Energia', ...
-                'Position',[80 60 1550 860], 'Color',[0.97 0.98 0.99]);
+            app.UIFigure = uifigure('Name','Plataforma Completa de Medidas, Medição e Qualidade de Energia', ...
+                'Position',[50 30 1680 970], 'Color',[0.96 0.97 0.98]);
             iconFile = app.iconFile();
             if exist(iconFile,'file')
                 try
@@ -170,23 +170,26 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             app.UIFigure.CloseRequestFcn = @(src,evt) delete(app);
 
             app.MainGrid = uigridlayout(app.UIFigure,[3 1]);
-            app.MainGrid.RowHeight = {84,'1x',34};
+            app.MainGrid.RowHeight = {110,'1x',40};
             app.MainGrid.ColumnWidth = {'1x'};
             app.MainGrid.Padding = [4 4 4 4];
-            app.MainGrid.RowSpacing = 4;
+            app.MainGrid.RowSpacing = 3;
 
             app.createRibbon();
 
             app.BodyGrid = uigridlayout(app.MainGrid,[1 3]);
-            app.BodyGrid.ColumnWidth = {230,'1x',250};
+            app.BodyGrid.ColumnWidth = {244,'1x',270};
             app.BodyGrid.RowHeight = {'1x'};
             app.BodyGrid.Padding = [0 0 0 0];
             app.BodyGrid.ColumnSpacing = 4;
 
-            app.LeftPanel = uipanel(app.BodyGrid,'Title','Projeto / Bases','FontWeight','bold');
+            app.LeftPanel = uipanel(app.BodyGrid,'Title','Projeto / Bases de Dados','FontWeight','bold',...
+                'FontSize',10.5,'FontColor',[0.06 0.20 0.38]);
             app.CenterPanel = uipanel(app.BodyGrid,'Title','','BorderType','none');
-            app.RightPanel = uipanel(app.BodyGrid,'Title','Parâmetros, notas e checklist','FontWeight','bold');
-            app.BottomPanel = uipanel(app.MainGrid,'Title','','BorderType','none');
+            app.RightPanel = uipanel(app.BodyGrid,'Title','Parâmetros e Configurações','FontWeight','bold',...
+                'FontSize',10.5,'FontColor',[0.06 0.20 0.38]);
+            app.BottomPanel = uipanel(app.MainGrid,'Title','','BorderType','none',...
+                'BackgroundColor',[0.93 0.95 0.97]);
 
             app.createLeftPanel();
             app.createRightPanel();
@@ -195,70 +198,157 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createRibbon(app)
-            app.Ribbon = uipanel(app.MainGrid,'Title','','BackgroundColor',[0.96 0.975 0.995]);
-            g = uigridlayout(app.Ribbon,[2 14]);
-            g.RowHeight = {24,'1x'};
-            g.ColumnWidth = {76,76,76,70,70,70,70,70,70,76,76,76,76,'1x'};
-            g.Padding = [6 4 6 4]; g.ColumnSpacing = 6;
-            brand = uilabel(g,'Text','SMQE  |  Simulador de Medição e Qualidade de Energia', ...
-                'FontSize',13,'FontWeight','bold','FontColor',[0.03 0.20 0.38]);
-            brand.Layout.Row = 1; brand.Layout.Column = [1 5];
-            grupos = {'DADOS','ANÁLISES','RELATÓRIOS','EXPORTAR','AJUDA'};
-            groupCols = [6 7 10 12 13];
-            for k=1:numel(grupos)
-                lbl = uilabel(g,'Text',grupos{k},'FontSize',10,'FontWeight','bold','FontColor',[0.10 0.25 0.45]);
-                lbl.Layout.Row = 1; lbl.Layout.Column = groupCols(k);
+            app.Ribbon = uipanel(app.MainGrid,'Title','','BorderType','none','BackgroundColor',[0.965 0.975 0.993]);
+
+            % 3 linhas: menu bar escuro | linha de acento azul | barra de botões
+            rg = uigridlayout(app.Ribbon,[3 1]);
+            rg.RowHeight = {28, 3, '1x'};
+            rg.Padding = [0 0 0 0];
+            rg.RowSpacing = 0;
+
+            % ── Linha 1: menu bar escuro ──
+            mb = uipanel(rg,'BackgroundColor',[0.11 0.19 0.35],'BorderType','none');
+            mbl = uigridlayout(mb,[1 10]);
+            mbl.Padding = [8 2 8 2];
+            mbl.ColumnWidth = {222,'1x',70,62,80,105,100,95,55,52};
+            mbl.ColumnSpacing = 6;
+            lbl = uilabel(mbl,'Text',' Plataforma de Medidas, Medição e Qualidade de Energia',...
+                'FontSize',11,'FontWeight','bold','FontColor',[0.94 0.97 1.0]);
+            lbl.Layout.Column = 1;
+            menus = {'ARQUIVO','DADOS','ANÁLISES','INSTRUMENTOS','RELATÓRIOS','VISUALIZAÇÃO','AJUDA'};
+            for k=1:numel(menus)
+                l2 = uilabel(mbl,'Text',menus{k},'FontSize',9.5,'FontWeight','bold',...
+                    'FontColor',[0.78 0.87 1.0],'HorizontalAlignment','center');
+                l2.Layout.Column = k+2;
             end
-            names = {'Novo','Abrir','Salvar','CSV','MAT','Tudo','FFT','THD','RMS','Relatório','Checklist','Figura','Manual',''};
-            callbacks = {@(~,~)app.novoProjeto(), @(~,~)app.importarDados(), @(~,~)app.salvarProjeto(), @(~,~)app.importarCSV(), @(~,~)app.importarMAT(), @(~,~)app.refreshAll(), @(~,~)app.plotFFT(), @(~,~)app.plotTHD(), @(~,~)app.plotRMS(), @(~,~)app.gerarRelatorio(), @(~,~)app.mostrarChecklist(), @(~,~)app.exportarGraficoAtual(), @(~,~)app.abrirAjuda(), []};
-            for k=1:13
-                b = uibutton(g,'push','Text',names{k},'FontSize',10,'ButtonPushedFcn',callbacks{k});
-                b.Layout.Row = 2; b.Layout.Column = k;
+
+            % ── Linha 2: acento azul brilhante ──
+            uipanel(rg,'BackgroundColor',[0.04 0.52 0.86],'BorderType','none');
+
+            % ── Linha 3: barra de botões em grupos ──
+            bb = uipanel(rg,'BackgroundColor',[0.965 0.975 0.993],'BorderType','none');
+            bbl = uigridlayout(bb,[1 9]);
+            bbl.Padding = [6 3 6 3];
+            bbl.ColumnWidth = {298, 6, 288, 6, 156, 6, 244, 6, 248};
+            bbl.ColumnSpacing = 0;
+
+            % Separadores visuais verticais
+            for col = [2 4 6 8]
+                sp = uipanel(bb,'BackgroundColor',[0.72 0.79 0.88],'BorderType','none');
+                sp.Layout.Column = col;
             end
-            app.ExportFormatDrop = uidropdown(g,'Items',{'png','jpg','pdf','eps','svg'},'Value','png');
-            app.ExportFormatDrop.Layout.Row = 2; app.ExportFormatDrop.Layout.Column = 14;
+
+            % Grupo PROJETO
+            g1p = uipanel(bb,'Title','  PROJETO','FontSize',8,'FontWeight','bold',...
+                'FontColor',[0.20 0.32 0.52],'BackgroundColor',[0.975 0.983 0.997]);
+            g1p.Layout.Column = 1;
+            g1l = uigridlayout(g1p,[1 4]);
+            g1l.Padding = [4 3 4 3]; g1l.ColumnWidth = {'1x','1x','1x','1x'};
+            b1 = {'Novo Projeto','Abrir','Salvar','Salvar Como'};
+            c1 = {@(~,~)app.novoProjeto(),@(~,~)app.importarDados(),...
+                  @(~,~)app.salvarProjeto(),@(~,~)app.salvarProjeto()};
+            for i=1:4
+                uibutton(g1l,'push','Text',b1{i},'FontSize',10,'ButtonPushedFcn',c1{i});
+            end
+
+            % Grupo IMPORTAR DADOS
+            g2p = uipanel(bb,'Title','  IMPORTAR DADOS','FontSize',8,'FontWeight','bold',...
+                'FontColor',[0.20 0.32 0.52],'BackgroundColor',[0.975 0.983 0.997]);
+            g2p.Layout.Column = 3;
+            g2l = uigridlayout(g2p,[1 4]);
+            g2l.Padding = [4 3 4 3]; g2l.ColumnWidth = {'1x','1x','1x','1x'};
+            b2 = {'Importar CSV','Importar MAT','Importar Excel','Exportar Excel'};
+            c2 = {@(~,~)app.importarCSV(),@(~,~)app.importarMAT(),...
+                  @(~,~)app.importarExcel(),@(~,~)app.exportarTabelas()};
+            for i=1:4
+                uibutton(g2l,'push','Text',b2{i},'FontSize',10,'ButtonPushedFcn',c2{i});
+            end
+
+            % Grupo EXECUÇÃO
+            g3p = uipanel(bb,'Title','  EXECUÇÃO','FontSize',8,'FontWeight','bold',...
+                'FontColor',[0.20 0.32 0.52],'BackgroundColor',[0.975 0.983 0.997]);
+            g3p.Layout.Column = 5;
+            g3l = uigridlayout(g3p,[1 2]);
+            g3l.Padding = [4 3 4 3]; g3l.ColumnWidth = {'1x','1x'};
+            uibutton(g3l,'push','Text','Executar Tudo','FontSize',10,'ButtonPushedFcn',@(~,~)app.refreshAll());
+            uibutton(g3l,'push','Text','Atualizar','FontSize',10,'ButtonPushedFcn',@(~,~)app.refreshAll());
+
+            % Grupo ANÁLISES
+            g4p = uipanel(bb,'Title','  ANÁLISES','FontSize',8,'FontWeight','bold',...
+                'FontColor',[0.20 0.32 0.52],'BackgroundColor',[0.975 0.983 0.997]);
+            g4p.Layout.Column = 7;
+            g4l = uigridlayout(g4p,[1 3]);
+            g4l.Padding = [4 3 4 3]; g4l.ColumnWidth = {'1x','1x','1x'};
+            uibutton(g4l,'push','Text','FFT','FontSize',10,'ButtonPushedFcn',@(~,~)app.plotFFT());
+            uibutton(g4l,'push','Text','THD','FontSize',10,'ButtonPushedFcn',@(~,~)app.plotTHD());
+            uibutton(g4l,'push','Text','RMS','FontSize',10,'ButtonPushedFcn',@(~,~)app.plotRMS());
+
+            % Grupo RELATÓRIOS
+            g5p = uipanel(bb,'Title','  RELATÓRIOS','FontSize',8,'FontWeight','bold',...
+                'FontColor',[0.20 0.32 0.52],'BackgroundColor',[0.975 0.983 0.997]);
+            g5p.Layout.Column = 9;
+            g5l = uigridlayout(g5p,[1 4]);
+            g5l.Padding = [4 3 4 3]; g5l.ColumnWidth = {'1x','1x','1x',80};
+            uibutton(g5l,'push','Text','Relatório','FontSize',10,'ButtonPushedFcn',@(~,~)app.gerarRelatorio());
+            uibutton(g5l,'push','Text','Checklist','FontSize',10,'ButtonPushedFcn',@(~,~)app.mostrarChecklist());
+            uibutton(g5l,'push','Text','Figura','FontSize',10,'ButtonPushedFcn',@(~,~)app.exportarGraficoAtual());
+            app.ExportFormatDrop = uidropdown(g5l,'Items',{'png','jpg','pdf','eps','svg'},'Value','png','FontSize',10);
         end
 
         function createLeftPanel(app)
             g = uigridlayout(app.LeftPanel,[2 1]);
-            g.RowHeight = {'1x',235}; g.Padding = [6 6 6 6];
+            g.RowHeight = {'1x',252}; g.Padding = [6 6 6 6];
             app.ProjectTree = uitree(g);
             iconFile = app.iconFile();
             if exist(iconFile,'file')
-                base = uitreenode(app.ProjectTree,'Text','SMQE - Base do Projeto','Icon',iconFile);
+                base = uitreenode(app.ProjectTree,'Text','Base Principal','Icon',iconFile);
             else
-                base = uitreenode(app.ProjectTree,'Text','SMQE - Base do Projeto');
+                base = uitreenode(app.ProjectTree,'Text','Base Principal');
             end
             cats = {'Tarifação','Harmônicos','Flicker','Cargas','Calibração','TC-TP','Instrumentos','Resultados','Figuras','Relatórios'};
             for i=1:numel(cats)
                 n = uitreenode(base,'Text',cats{i});
                 if strcmp(cats{i},'Cargas')
-                    uitreenode(n,'Text','Cargas Resistivas'); uitreenode(n,'Text','Motor'); uitreenode(n,'Text','Fonte Chaveada'); uitreenode(n,'Text','Carga Mista');
+                    uitreenode(n,'Text','Cargas Resistivas');
+                    uitreenode(n,'Text','Motor');
+                    uitreenode(n,'Text','Forno (Indutivo)');
+                    uitreenode(n,'Text','Ar Condicionado');
+                    uitreenode(n,'Text','Fonte Chaveada');
+                    uitreenode(n,'Text','Carga Mista');
                 end
             end
             expand(base);
-            metaPanel = uipanel(g,'Title','Metadados do SMQE','FontWeight','bold');
-            mg = uigridlayout(metaPanel,[2 1]); mg.RowHeight = {'1x',32}; mg.Padding=[6 6 6 6];
-            app.MetaText = uitextarea(mg,'Editable','off','FontSize',11,'Value',{...
-                'Sistema: SMQE', ...
-                'Nome: Simulador de Medição e Qualidade de Energia', ...
-                'Amostragem: 1 min / sinais: 10 kHz', ...
-                'Período: base demonstrativa', ...
-                'Tensão nominal: 220/380 V', ...
-                'Frequência nominal: 60 Hz', ...
-                'Instrumentos: analisador PQ, osciloscópio, multímetro', ...
-                'Responsável: Prof. Francisco S. Viana'});
-            uibutton(mg,'Text','Editar Metadados','ButtonPushedFcn',@(~,~)app.editarMetadados());
+            metaPanel = uipanel(g,'Title','Metadados','FontWeight','bold','FontSize',10,...
+                'FontColor',[0.06 0.20 0.38]);
+            mg = uigridlayout(metaPanel,[2 1]); mg.RowHeight = {'1x',30}; mg.Padding=[6 6 6 6];
+            app.MetaText = uitextarea(mg,'Editable','off','FontSize',9.5,'Value',{...
+                'Plataforma: Medidas, Medição e QE', ...
+                'Amostragem: 12,8 kS/s', ...
+                'Período: 07/05/2024 — base demo', ...
+                'Tensão nominal: 380 V L-L / 220 V L-N', ...
+                'Frequência nominal: 60,00 Hz', ...
+                'Local: Laboratório de QE — LQE', ...
+                'Instrumento: Analisador PQ QBox 100', ...
+                'N° Série: PQB100-23145', ...
+                'Responsável: Prof. Francisco A. N.'});
+            uibutton(mg,'Text','Editar Metadados','FontSize',9.5,...
+                'ButtonPushedFcn',@(~,~)app.editarMetadados());
         end
 
         function createRightPanel(app)
             g = uigridlayout(app.RightPanel,[6 1]);
-            g.RowHeight = {230,110,130,105,80,'1x'}; g.Padding=[6 6 6 6];
+            g.RowHeight = {255,108,135,104,84,'1x'}; g.Padding=[6 6 6 6];
 
-            p = uipanel(g,'Title','SMQE - Parâmetros da Análise','FontWeight','bold');
-            pg = uigridlayout(p,[8 2]); pg.ColumnWidth={95,'1x'}; pg.RowHeight=repmat({24},1,8); pg.Padding=[6 6 6 6];
-            labels={'Fase','Intervalo','Início','Fim','Tipo de carga','f0 (Hz)','Janela FFT','Posto tarifário'};
-            vals={{'Todas','L1','L2','L3'},{'Completo','Personalizado'},{'00:00'},{'23:59'},{'Todas','Resistiva','Motor','Fonte chaveada','Mista'},{'60'},{'Hanning','Retangular','Flat-top'},{'Fora ponta','Ponta'}};
+            % Parâmetros da análise
+            p = uipanel(g,'Title','Parâmetros da Análise','FontWeight','bold','FontSize',10,...
+                'FontColor',[0.06 0.20 0.38]);
+            pg = uigridlayout(p,[9 2]);
+            pg.ColumnWidth = {95,'1x'};
+            pg.RowHeight = [repmat({24},1,8),{30}];
+            pg.Padding = [6 5 6 5];
+            labels = {'Fase','Intervalo','Início','Fim','Tipo de carga','f0 (Hz)','Janela FFT','Posto tarifário'};
+            vals = {{'Todas','L1','L2','L3'},{'Personalizado','Completo'},{'00:00:00'},{'23:59:59'},...
+                    {'Todas','Resistiva','Motor','Fonte chaveada','Mista'},{'60,00'},{'Hanning','Retangular','Flat-top'},{'Ponta','Fora ponta'}};
             for i=1:numel(labels)
                 uilabel(pg,'Text',labels{i},'FontSize',10);
                 if numel(vals{i})>1
@@ -267,37 +357,82 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
                     uieditfield(pg,'text','Value',vals{i}{1},'FontSize',10);
                 end
             end
+            b_apl = uibutton(pg,'push','Text','Aplicar','FontSize',10,'FontWeight','bold',...
+                'BackgroundColor',[0.07 0.40 0.72],'FontColor',[1 1 1],...
+                'ButtonPushedFcn',@(~,~)app.refreshAll());
+            b_apl.Layout.Row = 9; b_apl.Layout.Column = 1;
+            b_red = uibutton(pg,'push','Text','Redefinir','FontSize',10,...
+                'ButtonPushedFcn',@(~,~)app.refreshAll());
+            b_red.Layout.Row = 9; b_red.Layout.Column = 2;
 
-            notes = uipanel(g,'Title','Roteiro didático','FontWeight','bold');
-            uitextarea(notes,'Position',[8 8 225 70],'Editable','off','Value',{...
-                '1. Importe ou valide a base de dados.', ...
-                '2. Confira ligação, medição, harmônicos e eventos.', ...
-                '3. Gere relatório com tabelas e gráficos.'});
+            % Observações / notas
+            notes = uipanel(g,'Title','Observações / Notas','FontWeight','bold','FontSize',10,...
+                'FontColor',[0.06 0.20 0.38]);
+            ng = uigridlayout(notes,[1 1]); ng.Padding=[6 6 6 6];
+            uitextarea(ng,'Editable','on','FontSize',9.5,'Value',{...
+                'Ensaio realizado com o perfil do medidor às 08:15.', ...
+                'Ponta: conexão operando a partir das 13:30.', ...
+                'Sem ocorrências críticas nas event logs.'});
 
-            ck = uipanel(g,'Title','Checklist de Ensaio','FontWeight','bold');
-            cg = uigridlayout(ck,[5 1]); cg.RowHeight = {20,20,20,20,20}; cg.Padding=[8 6 6 6];
-            checks={'Dados importados/preparados','Instrumentos e ligações conferidos','Janela de análise definida','Calibração TC/TP verificada','Relatório revisado'};
-            for i=1:5, uicheckbox(cg,'Text',checks{i},'Value',i<5); end
+            % Checklist de ensaio
+            ck = uipanel(g,'Title','Checklist de Ensaio','FontWeight','bold','FontSize',10,...
+                'FontColor',[0.06 0.20 0.38]);
+            cg = uigridlayout(ck,[5 1]);
+            cg.RowHeight = {22,22,22,22,22}; cg.Padding=[8 6 6 6];
+            checks = {'Configuração de Instrumento','Verificação de Ligações',...
+                      'Sincronismo de Tempo','Calibração TC/TP','Análise de Qualidade'};
+            for i=1:5, uicheckbox(cg,'Text',checks{i},'Value',i<5,'FontSize',9.5); end
 
-            sup = uipanel(g,'Title','Ensaios e grandezas suportadas','FontWeight','bold');
-            sg = uigridlayout(sup,[3 3]); sg.Padding=[6 6 6 6];
-            tags={'Tensão','Corrente','Potência','Energia','FP','Harmônicos','Flicker','RMS','Fasores'};
-            for i=1:numel(tags), uilabel(sg,'Text',tags{i},'BackgroundColor',[0.93 0.96 0.99],'HorizontalAlignment','center'); end
+            % Ensaios e grandezas suportadas
+            sup = uipanel(g,'Title','Ensaios e Grandezas Suportadas','FontWeight','bold','FontSize',10,...
+                'FontColor',[0.06 0.20 0.38]);
+            sg = uigridlayout(sup,[3 3]); sg.Padding=[5 5 5 5]; sg.RowSpacing=4; sg.ColumnSpacing=4;
+            tags = {'Tensão','Corrente','Potência','Energia','FP','Harmônicos','Flicker','RMS','Fasores'};
+            for i=1:numel(tags)
+                uilabel(sg,'Text',tags{i},'BackgroundColor',[0.91 0.95 0.99],...
+                    'HorizontalAlignment','center','FontSize',9.5,'FontColor',[0.10 0.28 0.52]);
+            end
 
-            q = uipanel(g,'Title','Ações rápidas','FontWeight','bold');
-            qg = uigridlayout(q,[2 2]); qg.Padding=[6 6 6 6];
-            uibutton(qg,'Text','Importar Dados','ButtonPushedFcn',@(~,~)app.importarDados());
-            uibutton(qg,'Text','Exportar Gráficos','ButtonPushedFcn',@(~,~)app.exportarTodosGraficos());
-            uibutton(qg,'Text','Gerar Relatório','ButtonPushedFcn',@(~,~)app.gerarRelatorio());
-            uibutton(qg,'Text','Ajuda','ButtonPushedFcn',@(~,~)app.abrirAjuda());
+            % Atalhos rápidos
+            q = uipanel(g,'Title','Atalhos Rápidos','FontWeight','bold','FontSize',10,...
+                'FontColor',[0.06 0.20 0.38]);
+            qg = uigridlayout(q,[2 2]); qg.Padding=[5 5 5 5]; qg.ColumnSpacing=5;
+            uibutton(qg,'Text','Importar Dados','FontSize',9.5,'ButtonPushedFcn',@(~,~)app.importarDados());
+            uibutton(qg,'Text','Gerar Relatório','FontSize',9.5,'ButtonPushedFcn',@(~,~)app.gerarRelatorio());
+            uibutton(qg,'Text','Exportar Gráficos','FontSize',9.5,'ButtonPushedFcn',@(~,~)app.exportarTodosGraficos());
+            uibutton(qg,'Text','Ajuda Online','FontSize',9.5,'ButtonPushedFcn',@(~,~)app.abrirAjuda());
 
-            app.StatusLabel = uilabel(g,'Text','SMQE pronto para análise','FontWeight','bold','FontColor',[0.0 0.45 0.15]);
+            app.StatusLabel = uilabel(g,'Text','● Plataforma pronta para análise','FontWeight','bold',...
+                'FontSize',9.5,'FontColor',[0.04 0.44 0.14]);
         end
 
         function createBottomPanel(app)
-            g = uigridlayout(app.BottomPanel,[1 2]); g.ColumnWidth = {'1x',170}; g.Padding=[4 0 4 0];
-            app.LogText = uitextarea(g,'Editable','off','FontSize',10,'Value',{'Log de processamento:'});
-            uibutton(g,'Text','Limpar Log','ButtonPushedFcn',@(~,~)set(app.LogText,'Value',{'Log de processamento:'}));
+            g = uigridlayout(app.BottomPanel,[1 3]);
+            g.ColumnWidth = {'1x', 318, 310};
+            g.Padding = [4 2 6 2];
+            g.ColumnSpacing = 0;
+
+            % Área de log
+            logPnl = uipanel(g,'BorderType','none','BackgroundColor',[0.93 0.95 0.97]);
+            lg = uigridlayout(logPnl,[1 2]);
+            lg.ColumnWidth = {'1x',108}; lg.Padding = [2 2 2 2]; lg.ColumnSpacing = 4;
+            app.LogText = uitextarea(lg,'Editable','off','FontSize',9,...
+                'BackgroundColor',[0.93 0.95 0.97],'Value',{'Log de processamento:'});
+            uibutton(lg,'Text','Limpar Log','FontSize',9,...
+                'ButtonPushedFcn',@(~,~)set(app.LogText,'Value',{'Log de processamento:'}));
+
+            % Separador + info de sincronização
+            midPnl = uipanel(g,'BorderType','line','BackgroundColor',[0.93 0.95 0.97]);
+            ml = uigridlayout(midPnl,[1 1]); ml.Padding = [4 2 4 2];
+            uilabel(ml,'Text','Sincronização: OK  ●   |   Instrumento: Analisador PQ QBox 100',...
+                'FontSize',9,'FontColor',[0.04 0.44 0.14],'HorizontalAlignment','center',...
+                'FontWeight','bold');
+
+            % Info de usuário + status
+            rightPnl = uipanel(g,'BorderType','line','BackgroundColor',[0.93 0.95 0.97]);
+            rl = uigridlayout(rightPnl,[1 1]); rl.Padding = [4 2 4 2];
+            uilabel(rl,'Text','Usuário: Francisco  |  Função: Administrador  |  Status: Pronto  ●',...
+                'FontSize',9,'FontColor',[0.18 0.28 0.45],'HorizontalAlignment','right');
         end
 
         function createTabs(app)
@@ -313,29 +448,37 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             app.createEnergiaFPTab();
             app.createMetrologiaTCTPSegurancaTab();
             app.createRelatoriosTab();
+            app.createProtocoloTab();
         end
 
         function createDashboardTab(app)
-            tab = uitab(app.TabGroup,'Title','1 Dashboard');
+            tab = uitab(app.TabGroup,'Title','1  Dashboard');
             g = uigridlayout(tab,[5 5]);
-            g.RowHeight = {78,'1.25x','1x',150,94};
+            g.RowHeight = {84,'1.3x','1x',156,96};
             g.ColumnWidth = {'1x','1x','1x','1x','1x'};
             g.Padding = [8 8 8 8];
             g.RowSpacing = 8;
             g.ColumnSpacing = 8;
 
             cards = {'Energia do Dia (kWh)','Demanda Máxima (kW)','FP Médio','THD-I Máx (%)','THD-V Máx (%)'};
-            colors = {[0.05 0.40 0.80],[0.90 0.32 0.10],[0.10 0.55 0.26],[0.42 0.14 0.76],[0.03 0.45 0.82]};
+            icons = {char(9889), char(9711), char(9676), char(8776), char(8764)};
+            colors = {[0.04 0.36 0.78],[0.86 0.28 0.06],[0.07 0.48 0.20],[0.38 0.10 0.70],[0.03 0.40 0.78]};
+            bgColors = {[0.970 0.980 1.000],[1.000 0.972 0.965],[0.970 0.998 0.972],[0.980 0.970 1.000],[0.970 0.980 1.000]};
             app.DashboardCardValueLabels = cell(1,numel(cards));
             app.DashboardCardSubLabels = cell(1,numel(cards));
             for i=1:numel(cards)
-                p = uipanel(g,'Title',cards{i},'FontWeight','bold','BackgroundColor',[0.985 0.99 1]);
+                p = uipanel(g,'Title',cards{i},'FontWeight','bold','FontSize',9.5,...
+                    'FontColor',[0.10 0.24 0.44],'BackgroundColor',bgColors{i});
                 p.Layout.Row = 1; p.Layout.Column = i;
-                cg = uigridlayout(p,[2 1]);
-                cg.RowHeight = {'1x',22};
-                cg.Padding = [8 2 8 2];
-                app.DashboardCardValueLabels{i} = uilabel(cg,'Text','--','FontSize',22,'FontWeight','bold','FontColor',colors{i},'HorizontalAlignment','center');
-                app.DashboardCardSubLabels{i} = uilabel(cg,'Text','Aguardando dados','FontSize',10,'FontColor',[0.20 0.28 0.36],'HorizontalAlignment','center');
+                cg = uigridlayout(p,[3 1]);
+                cg.RowHeight = {20,'1x',20};
+                cg.Padding = [4 2 4 2];
+                uilabel(cg,'Text',icons{i},'FontSize',17,'HorizontalAlignment','center',...
+                    'FontColor',colors{i});
+                app.DashboardCardValueLabels{i} = uilabel(cg,'Text','--','FontSize',23,...
+                    'FontWeight','bold','FontColor',colors{i},'HorizontalAlignment','center');
+                app.DashboardCardSubLabels{i} = uilabel(cg,'Text','Aguardando dados',...
+                    'FontSize',9.5,'FontColor',[0.22 0.32 0.44],'HorizontalAlignment','center');
             end
 
             app.AxTempo = uiaxes(g); app.AxTempo.Layout.Row=2; app.AxTempo.Layout.Column=[1 3]; title(app.AxTempo,'Tensões e correntes no tempo');
@@ -346,7 +489,8 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             app.TabelaResumo = uitable(g); app.TabelaResumo.Layout.Row=4; app.TabelaResumo.Layout.Column=[1 2];
             app.TabelaEventos = uitable(g); app.TabelaEventos.Layout.Row=4; app.TabelaEventos.Layout.Column=3;
             app.AxDiagrama = uiaxes(g); app.AxDiagrama.Layout.Row=4; app.AxDiagrama.Layout.Column=[4 5]; title(app.AxDiagrama,'Diagrama de medição');
-            app.DashboardIndicatorsPanel = uipanel(g,'Title','Metrologia e Qualidade - Indicadores de Ensaio','FontWeight','bold','BackgroundColor',[0.98 0.985 0.99]);
+            app.DashboardIndicatorsPanel = uipanel(g,'Title','Metrologia e Qualidade — Indicadores de Ensaio','FontWeight','bold',...
+                'FontSize',10,'FontColor',[0.06 0.20 0.38],'BackgroundColor',[0.978 0.984 0.992]);
             app.DashboardIndicatorsPanel.Layout.Row=5; app.DashboardIndicatorsPanel.Layout.Column=[1 5];
             app.createDashboardIndicators();
         end
@@ -356,38 +500,40 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             ig = uigridlayout(app.DashboardIndicatorsPanel,[2 8]);
             ig.RowHeight = {'1x','1x'};
             ig.ColumnWidth = repmat({'1x'},1,8);
-            ig.Padding = [8 4 8 6];
-            ig.RowSpacing = 5;
-            ig.ColumnSpacing = 6;
+            ig.Padding = [6 3 6 4];
+            ig.RowSpacing = 4;
+            ig.ColumnSpacing = 5;
             items = { ...
-                'Medição de Tensão','220,1 V'; ...
-                'Medição de Corrente','125,3 A'; ...
-                'Resistência','10,24 ohm'; ...
-                'Continuidade','OK'; ...
-                'Aterramento','> 1000 Mohm'; ...
-                'Erro Absoluto','0,35 %'; ...
-                'Exatidão','+/-0,50 %'; ...
-                'Precisão','+/-0,25 %'; ...
-                'Incerteza Tipo A','0,15 %'; ...
-                'Incerteza Tipo B','0,20 %'; ...
-                'Incerteza Expandida','0,50 %'; ...
-                'Categorias','CAT II/III/IV'; ...
-                'TC Aberto: Risco','Detectado'; ...
-                'Calibração','Válida'; ...
-                'Rastreabilidade','Rastreável'; ...
-                'Resolução','0,01'};
+                'Medição de Tensão','220,1 V',[0.94 0.97 1.00]; ...
+                'Medição de Corrente','125,3 A',[0.94 0.97 1.00]; ...
+                'Resistência','10,24 Ω',[1.00 0.97 0.94]; ...
+                'Continuidade','OK',[0.94 1.00 0.94]; ...
+                'Aterramento','> 1000 MΩ',[0.94 1.00 0.94]; ...
+                'Erro Absoluto','0,35 %',[1.00 0.98 0.94]; ...
+                'Exatidão','±0,50 %',[1.00 0.98 0.94]; ...
+                'Precisão','±0,25 %',[1.00 0.98 0.94]; ...
+                'Incerteza Tipo A','0,15 %',[0.98 0.95 1.00]; ...
+                'Incerteza Tipo B','0,20 %',[0.98 0.95 1.00]; ...
+                'Incerteza Expan.','0,50 %',[0.98 0.95 1.00]; ...
+                'Categorias','CAT II/III/IV',[0.96 0.96 0.98]; ...
+                'TC Aberto: Risco','Detectado',[1.00 0.94 0.94]; ...
+                'Calibração','Válida',[0.94 1.00 0.94]; ...
+                'Rastreabilidade','Rastreável',[0.94 1.00 0.94]; ...
+                'Resolução','0,01',[0.96 0.97 0.99]};
             for i=1:size(items,1)
-                p = uipanel(ig,'BackgroundColor',[1 1 1],'BorderType','line');
+                p = uipanel(ig,'BackgroundColor',items{i,3},'BorderType','line');
                 pg = uigridlayout(p,[2 1]);
-                pg.RowHeight = {18,'1x'};
-                pg.Padding = [4 2 4 2];
-                uilabel(pg,'Text',items{i,1},'FontSize',9,'FontWeight','bold','FontColor',[0.12 0.25 0.42],'HorizontalAlignment','center');
-                uilabel(pg,'Text',items{i,2},'FontSize',11,'FontWeight','bold','FontColor',[0.08 0.33 0.58],'HorizontalAlignment','center');
+                pg.RowHeight = {17,'1x'};
+                pg.Padding = [3 2 3 2];
+                uilabel(pg,'Text',items{i,1},'FontSize',8.5,'FontWeight','bold',...
+                    'FontColor',[0.12 0.26 0.44],'HorizontalAlignment','center');
+                uilabel(pg,'Text',items{i,2},'FontSize',11,'FontWeight','bold',...
+                    'FontColor',[0.07 0.32 0.56],'HorizontalAlignment','center');
             end
         end
 
         function createImportTab(app)
-            tab = uitab(app.TabGroup,'Title','2 Dados');
+            tab = uitab(app.TabGroup,'Title','2  Importação de Dados');
             g = uigridlayout(tab,[2 4]); g.RowHeight={55,'1x'}; g.ColumnWidth={130,130,130,'1x'}; g.Padding=[8 8 8 8];
             uibutton(g,'Text','Importar CSV','ButtonPushedFcn',@(~,~)app.importarCSV());
             uibutton(g,'Text','Importar MAT','ButtonPushedFcn',@(~,~)app.importarMAT());
@@ -406,7 +552,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createMedidasInstrumentosTab(app)
-            tab = uitab(app.TabGroup,'Title','3 Medidas e Instrumentos');
+            tab = uitab(app.TabGroup,'Title','3  Medidas e Instrumentos');
             g = uigridlayout(tab,[2 2]); g.RowHeight={280,'1x'}; g.ColumnWidth={360,'1x'}; g.Padding=[8 8 8 8];
 
             p = uipanel(g,'Title','Calculadora de medidas elétricas','FontWeight','bold'); p.Layout.Row=1; p.Layout.Column=1;
@@ -424,7 +570,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createCircuitosEditorTab(app)
-            tab = uitab(app.TabGroup,'Title','4 Circuitos e Editor');
+            tab = uitab(app.TabGroup,'Title','4  Circuitos de Medição');
             shell = uigridlayout(tab,[1 1]); shell.Padding=[0 0 0 0];
             sub = uitabgroup(shell);
 
@@ -480,7 +626,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createQualidadeEnergiaTab(app)
-            tab=uitab(app.TabGroup,'Title','7 Qualidade de Energia');
+            tab=uitab(app.TabGroup,'Title','7  Qualidade de Energia');
             shell=uigridlayout(tab,[1 1]); shell.Padding=[0 0 0 0]; sub=uitabgroup(shell);
             app.createAnalysisPane(uitab(sub,'Title','Harmônicos / FFT'),1,'Harmônicos, FFT e THD','Atualizar FFT/THD');
             app.createAnalysisPane(uitab(sub,'Title','Eventos'),4,'Eventos RMS: sag, swell, interrupção e frequência','Detectar eventos');
@@ -488,14 +634,14 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createEnergiaFPTab(app)
-            tab=uitab(app.TabGroup,'Title','8 Energia, Demanda e FP');
+            tab=uitab(app.TabGroup,'Title','8  Energia, Demanda e FP');
             shell=uigridlayout(tab,[1 1]); shell.Padding=[0 0 0 0]; sub=uitabgroup(shell);
             app.createAnalysisPane(uitab(sub,'Title','Energia e Demanda'),2,'Energia acumulada, curva de carga e demanda','Calcular energia');
             app.createAnalysisPane(uitab(sub,'Title','Fator de Potência'),3,'Fator de potência e banco de capacitores','Calcular FP');
         end
 
         function createMetrologiaTCTPSegurancaTab(app)
-            tab=uitab(app.TabGroup,'Title','9 Metrologia, TC/TP e Segurança');
+            tab=uitab(app.TabGroup,'Title','9  Metrologia e TC/TP');
             shell=uigridlayout(tab,[1 1]); shell.Padding=[0 0 0 0]; sub=uitabgroup(shell);
 
             met=uitab(sub,'Title','Metrologia');
@@ -514,7 +660,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createRelatoriosTab(app)
-            tab=uitab(app.TabGroup,'Title','10 Relatórios');
+            tab=uitab(app.TabGroup,'Title','10  Relatórios');
             g=uigridlayout(tab,[2 3]); g.RowHeight={50,'1x'}; g.ColumnWidth={170,180,'1x'}; g.Padding=[8 8 8 8];
             uibutton(g,'Text','Gerar Relatório','ButtonPushedFcn',@(~,~)app.gerarRelatorio());
             uibutton(g,'Text','Exportar Todas Figuras','ButtonPushedFcn',@(~,~)app.exportarTodosGraficos());
@@ -523,7 +669,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             relArea.Layout.Row=2; relArea.Layout.Column=[1 3];
         end
         function createSimulacaoTab(app)
-            tab = uitab(app.TabGroup,'Title','5 Simulação');
+            tab = uitab(app.TabGroup,'Title','5  Simulação e Cálculo');
             g = uigridlayout(tab,[3 3]); g.RowHeight={44,'1x','1x'}; g.ColumnWidth={260,'1x','1x'}; g.Padding=[8 8 8 8];
             p = uipanel(g,'Title','Modo de simulação','FontWeight','bold'); p.Layout.Row=1; p.Layout.Column=1;
             pg = uigridlayout(p,[1 2]); pg.Padding=[4 4 4 4];
@@ -536,7 +682,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createFasoresTab(app)
-            tab = uitab(app.TabGroup,'Title','6 Fasores / Trifásico');
+            tab = uitab(app.TabGroup,'Title','6  Fasores e Trifásico');
             g = uigridlayout(tab,[1 2]); g.ColumnWidth={'1x',360}; g.Padding=[8 8 8 8];
             app.AxFasores = uiaxes(g); title(app.AxFasores,'Diagrama fasorial');
             app.FasorTable = uitable(g);
@@ -951,7 +1097,65 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
         function novoProjeto(app), app.createDemoData(); app.refreshAll(); app.log('Novo projeto demonstrativo criado.'); end
         function abrirAjuda(app), uialert(app.UIFigure,'SMQE: importe ou valide os dados, confira o roteiro de ensaio, analise medições e qualidade de energia, monte circuitos didáticos quando necessário e gere o relatório final.','Ajuda do SMQE'); end
-        function mostrarChecklist(app), app.TabGroup.SelectedTab = app.TabGroup.Children(strcmp({app.TabGroup.Children.Title},'9 Metrologia, TC/TP e Segurança')); end
+        function mostrarChecklist(app)
+            tabs = app.TabGroup.Children;
+            titles = {tabs.Title};
+            idx = find(contains(titles,'Metrologia'),1);
+            if ~isempty(idx)
+                app.TabGroup.SelectedTab = tabs(idx);
+            end
+        end
+
+        function createProtocoloTab(app)
+            tab = uitab(app.TabGroup,'Title','11  Protocolo Experimental');
+            g = uigridlayout(tab,[2 1]);
+            g.RowHeight = {36,'1x'}; g.Padding = [8 8 8 8];
+            uilabel(g,'Text','Protocolo Experimental — Medidas e Qualidade de Energia',...
+                'FontWeight','bold','FontSize',14,'FontColor',[0.05 0.22 0.40]);
+            area = uitextarea(g,'Editable','off','FontSize',11,'Value',{...
+                '1.  Verificação e configuração do instrumento', ...
+                '    1.1  Confirmar calibração e rastreabilidade (certificado vigente)', ...
+                '    1.2  Verificar ligações e categoria CAT do medidor (II/III/IV)', ...
+                '    1.3  Sincronizar relógio do instrumento com referência GPS/NTP', ...
+                '', ...
+                '2.  Importação e preparação dos dados', ...
+                '    2.1  Importar CSV, MAT ou Excel via aba "2 Importação de Dados"', ...
+                '    2.2  Validar colunas obrigatórias (Va, Vb, Vc, Ia, Ib, Ic, FP, THD...)', ...
+                '    2.3  Checar amostras ausentes e consistência de timestamp', ...
+                '', ...
+                '3.  Análise de medidas básicas (aba 3)', ...
+                '    3.1  Tensão, corrente, potência ativa/reativa/aparente e FP', ...
+                '    3.2  Calcular com a calculadora de medidas elétricas', ...
+                '', ...
+                '4.  Circuitos de medição (aba 4)', ...
+                '    4.1  Conferir esquema monofásico / trifásico / TC-TP / analisador', ...
+                '    4.2  Montar e simular circuito didático no editor', ...
+                '', ...
+                '5.  Qualidade de energia (aba 7)', ...
+                '    5.1  Espectro harmônico (FFT) e THD vs IEEE 519', ...
+                '    5.2  Detecção de eventos: sag, swell, interrupção e freq.', ...
+                '    5.3  Verificação de desequilíbrio de tensão', ...
+                '', ...
+                '6.  Energia, demanda e fator de potência (aba 8)', ...
+                '    6.1  Energia acumulada (kWh) e curva de carga', ...
+                '    6.2  Demanda máxima e diagnóstico de FP', ...
+                '    6.3  Dimensionamento de banco capacitivo', ...
+                '', ...
+                '7.  TC / TP e metrologia (aba 9)', ...
+                '    7.1  Curva de erro de TC/TP por carga', ...
+                '    7.2  Incerteza de medição expandida (k=2)', ...
+                '    7.3  Osciloscópio virtual e aquisição de formas de onda', ...
+                '', ...
+                '8.  Segurança (conferir antes de cada ensaio)', ...
+                '    8.1  EPI adequado à categoria de tensão', ...
+                '    8.2  TC nunca com secundário aberto', ...
+                '    8.3  GND do osciloscópio e bloqueio / etiquetagem (LOTO)', ...
+                '', ...
+                '9.  Relatório e exportação (aba 10)', ...
+                '    9.1  Gerar relatório HTML com tabelas e metodologia', ...
+                '    9.2  Exportar tabelas (CSV, XLSX, MAT)', ...
+                '    9.3  Exportar gráficos em alta resolução (PNG, PDF, SVG)'});
+        end
         function editarMetadados(app), app.MetaText.Editable='on'; app.log('Metadados liberados para edição.'); end
         function saveCircuitCSV(app)
             [f,p]=uiputfile('circuito.csv','Salvar circuito'); if isequal(f,0), return; end
