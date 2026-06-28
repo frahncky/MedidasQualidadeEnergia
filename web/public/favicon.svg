@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="SMQE icon">
+  <defs>
+    <linearGradient id="bg" x1="36" y1="28" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0a5da8"/>
+      <stop offset="0.58" stop-color="#073f73"/>
+      <stop offset="1" stop-color="#052a4e"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="84" y1="37" x2="171" y2="173" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff27a"/>
+      <stop offset="1" stop-color="#ffb229"/>
+    </linearGradient>
+  </defs>
+  <rect x="14" y="14" width="228" height="228" rx="48" fill="url(#bg)"/>
+  <path d="M45 132 C71 94, 91 94, 116 132 S161 170, 211 111" fill="none" stroke="#6fe7ff" stroke-width="13" stroke-linecap="round"/>
+  <path d="M138 34 L79 129 H122 L102 210 L178 101 H133 Z" fill="url(#bolt)" stroke="#fff8c7" stroke-width="4" stroke-linejoin="round"/>
+  <text x="128" y="226" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="37" font-weight="800" fill="#ffffff" letter-spacing="2">SMQE</text>
+</svg>
