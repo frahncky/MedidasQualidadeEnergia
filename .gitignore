@@ -1,0 +1,37 @@
+# MATLAB generated files
+*.asv
+*.m~
+*.mlx.autosave
+*.slxc
+*.mex*
+*.mat
+
+# Exported analysis/report outputs
+grafico_*.png
+grafico_*.jpg
+grafico_*.jpeg
+grafico_*.pdf
+grafico_*.eps
+grafico_*.svg
+relatorio_medidas_qualidade.*
+projeto_medidas_qualidade.mat
+estado_analise.mat
+tabelas_resultados.xlsx
+dados_exportados.csv
+componentes_exportados.csv
+ligacoes_exportadas.csv
+resumo_indicadores.csv
+eventos_qualidade.csv
+harmonicos_fft.csv
+energia_demanda.csv
+fator_potencia.csv
+estatistica_cargas.csv
+tc_tp_calibracao.csv
+*_ligacoes.csv
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+

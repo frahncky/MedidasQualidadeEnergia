@@ -1,0 +1,11 @@
+aba,conteudo_principal,elementos
+Dashboard,Visao geral de energia e qualidade,Indicadores graficos tabelas eventos diagrama
+Dados,Carregamento validacao e preview de bases,CSV MAT Excel tabela preview validacao preparacao de colunas
+Medidas e Instrumentos,Calculadoras e biblioteca didatica,Lei de Ohm potencia instrumentos tabela circuitos basicos
+Circuitos e Editor,Esquemas e montagem didatica,Diagramas mono trifasico TC TP analisador editor componentes fios valores exportacao
+Simulacao,Calculo didatico de circuitos,CC RLC serie paralelo trifasico correcao de FP ressonancia formas de onda fasores potencias
+Fasores / Trifasico,Diagrama fasorial completo,Tensoes correntes neutro componentes simetricas angulos FP sequencia
+Qualidade de Energia,Harmonicos eventos e estatistica,FFT THD sag swell interrupcao frequencia estatistica por carga
+Energia Demanda e FP,kWh demanda curva de carga e correcao de FP,Energia demanda fator de carga postos banco de capacitores diagnostico
+Metrologia TC/TP e Seguranca,Incerteza calibracao aquisicao e checklist,Metrologia TC TP osciloscopio seguranca CAT EPI LOTO riscos
+Relatorios,Exportacao de resultados,HTML TXT DOC CSV XLSX MAT figuras PNG JPG PDF EPS SVG
