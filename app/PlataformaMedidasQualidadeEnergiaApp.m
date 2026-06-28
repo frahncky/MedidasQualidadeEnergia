@@ -1,5 +1,5 @@
 classdef PlataformaMedidasQualidadeEnergiaApp < handle
-    % Plataforma de Medidas, Medicao e Qualidade de Energia
+    % SMQE - Simulador de Medicao e Qualidade de Energia
     % Interface programatica no estilo App Designer.
     % Autor: Francisco S. Viana / gerado para disciplina de Medidas e Qualidade de Energia.
 
@@ -142,9 +142,31 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             end
         end
 
+        function file = assetFile(app,name)
+            root = app.projectRoot();
+            file = fullfile(root,'assets',name);
+            if ~exist(file,'file')
+                file = fullfile(root,name);
+            end
+        end
+
+        function file = iconFile(app)
+            file = app.assetFile('smqe_icon.png');
+            if ~exist(file,'file')
+                file = app.assetFile('smqe_icon.svg');
+            end
+        end
+
         function createUI(app)
-            app.UIFigure = uifigure('Name','Plataforma Completa de Medidas, Medição e Qualidade de Energia', ...
+            app.UIFigure = uifigure('Name','SMQE - Simulador de Medição e Qualidade de Energia', ...
                 'Position',[80 60 1550 860], 'Color',[0.97 0.98 0.99]);
+            iconFile = app.iconFile();
+            if exist(iconFile,'file')
+                try
+                    app.UIFigure.Icon = iconFile;
+                catch
+                end
+            end
             app.UIFigure.CloseRequestFcn = @(src,evt) delete(app);
 
             app.MainGrid = uigridlayout(app.UIFigure,[3 1]);
@@ -173,15 +195,19 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function createRibbon(app)
-            app.Ribbon = uipanel(app.MainGrid,'Title','','BackgroundColor',[0.98 0.98 0.98]);
+            app.Ribbon = uipanel(app.MainGrid,'Title','','BackgroundColor',[0.96 0.975 0.995]);
             g = uigridlayout(app.Ribbon,[2 14]);
-            g.RowHeight = {22,'1x'};
-            g.ColumnWidth = {70,70,70,70,70,70,70,70,70,70,70,70,70,'1x'};
+            g.RowHeight = {24,'1x'};
+            g.ColumnWidth = {76,76,76,70,70,70,70,70,70,76,76,76,76,'1x'};
             g.Padding = [6 4 6 4]; g.ColumnSpacing = 6;
-            grupos = {'ARQUIVO','','','DADOS','','ANÁLISES','','','','RELATÓRIOS','','EXPORTAR','AJUDA',''};
-            for k=1:14
+            brand = uilabel(g,'Text','SMQE  |  Simulador de Medição e Qualidade de Energia', ...
+                'FontSize',13,'FontWeight','bold','FontColor',[0.03 0.20 0.38]);
+            brand.Layout.Row = 1; brand.Layout.Column = [1 5];
+            grupos = {'DADOS','ANÁLISES','RELATÓRIOS','EXPORTAR','AJUDA'};
+            groupCols = [6 7 10 12 13];
+            for k=1:numel(grupos)
                 lbl = uilabel(g,'Text',grupos{k},'FontSize',10,'FontWeight','bold','FontColor',[0.10 0.25 0.45]);
-                lbl.Layout.Row = 1; lbl.Layout.Column = k;
+                lbl.Layout.Row = 1; lbl.Layout.Column = groupCols(k);
             end
             names = {'Novo','Abrir','Salvar','CSV','MAT','Tudo','FFT','THD','RMS','Relatório','Checklist','Figura','Manual',''};
             callbacks = {@(~,~)app.novoProjeto(), @(~,~)app.importarDados(), @(~,~)app.salvarProjeto(), @(~,~)app.importarCSV(), @(~,~)app.importarMAT(), @(~,~)app.refreshAll(), @(~,~)app.plotFFT(), @(~,~)app.plotTHD(), @(~,~)app.plotRMS(), @(~,~)app.gerarRelatorio(), @(~,~)app.mostrarChecklist(), @(~,~)app.exportarGraficoAtual(), @(~,~)app.abrirAjuda(), []};
@@ -197,7 +223,12 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             g = uigridlayout(app.LeftPanel,[2 1]);
             g.RowHeight = {'1x',235}; g.Padding = [6 6 6 6];
             app.ProjectTree = uitree(g);
-            base = uitreenode(app.ProjectTree,'Text','Base Principal','Icon','');
+            iconFile = app.iconFile();
+            if exist(iconFile,'file')
+                base = uitreenode(app.ProjectTree,'Text','SMQE - Base do Projeto','Icon',iconFile);
+            else
+                base = uitreenode(app.ProjectTree,'Text','SMQE - Base do Projeto');
+            end
             cats = {'Tarifação','Harmônicos','Flicker','Cargas','Calibração','TC-TP','Instrumentos','Resultados','Figuras','Relatórios'};
             for i=1:numel(cats)
                 n = uitreenode(base,'Text',cats{i});
@@ -206,9 +237,11 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
                 end
             end
             expand(base);
-            metaPanel = uipanel(g,'Title','Metadados','FontWeight','bold');
+            metaPanel = uipanel(g,'Title','Metadados do SMQE','FontWeight','bold');
             mg = uigridlayout(metaPanel,[2 1]); mg.RowHeight = {'1x',32}; mg.Padding=[6 6 6 6];
             app.MetaText = uitextarea(mg,'Editable','off','FontSize',11,'Value',{...
+                'Sistema: SMQE', ...
+                'Nome: Simulador de Medição e Qualidade de Energia', ...
                 'Amostragem: 1 min / sinais: 10 kHz', ...
                 'Período: base demonstrativa', ...
                 'Tensão nominal: 220/380 V', ...
@@ -222,7 +255,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             g = uigridlayout(app.RightPanel,[6 1]);
             g.RowHeight = {230,110,130,105,80,'1x'}; g.Padding=[6 6 6 6];
 
-            p = uipanel(g,'Title','Parâmetros da Análise','FontWeight','bold');
+            p = uipanel(g,'Title','SMQE - Parâmetros da Análise','FontWeight','bold');
             pg = uigridlayout(p,[8 2]); pg.ColumnWidth={95,'1x'}; pg.RowHeight=repmat({24},1,8); pg.Padding=[6 6 6 6];
             labels={'Fase','Intervalo','Início','Fim','Tipo de carga','f0 (Hz)','Janela FFT','Posto tarifário'};
             vals={{'Todas','L1','L2','L3'},{'Completo','Personalizado'},{'00:00'},{'23:59'},{'Todas','Resistiva','Motor','Fonte chaveada','Mista'},{'60'},{'Hanning','Retangular','Flat-top'},{'Fora ponta','Ponta'}};
@@ -235,12 +268,15 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
                 end
             end
 
-            notes = uipanel(g,'Title','Observações / Notas','FontWeight','bold');
-            uitextarea(notes,'Position',[8 8 225 70],'Value',{'Use esta área para marcar eventos, hipóteses e decisões de análise.'});
+            notes = uipanel(g,'Title','Roteiro didático','FontWeight','bold');
+            uitextarea(notes,'Position',[8 8 225 70],'Editable','off','Value',{...
+                '1. Importe ou valide a base de dados.', ...
+                '2. Confira ligação, medição, harmônicos e eventos.', ...
+                '3. Gere relatório com tabelas e gráficos.'});
 
             ck = uipanel(g,'Title','Checklist de Ensaio','FontWeight','bold');
             cg = uigridlayout(ck,[5 1]); cg.RowHeight = {20,20,20,20,20}; cg.Padding=[8 6 6 6];
-            checks={'Configuração do instrumento','Verificação das ligações','Sincronização de tempo','Calibração TC/TP','Relatório final'};
+            checks={'Dados importados/preparados','Instrumentos e ligações conferidos','Janela de análise definida','Calibração TC/TP verificada','Relatório revisado'};
             for i=1:5, uicheckbox(cg,'Text',checks{i},'Value',i<5); end
 
             sup = uipanel(g,'Title','Ensaios e grandezas suportadas','FontWeight','bold');
@@ -248,14 +284,14 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             tags={'Tensão','Corrente','Potência','Energia','FP','Harmônicos','Flicker','RMS','Fasores'};
             for i=1:numel(tags), uilabel(sg,'Text',tags{i},'BackgroundColor',[0.93 0.96 0.99],'HorizontalAlignment','center'); end
 
-            q = uipanel(g,'Title','Atalhos rápidos','FontWeight','bold');
+            q = uipanel(g,'Title','Ações rápidas','FontWeight','bold');
             qg = uigridlayout(q,[2 2]); qg.Padding=[6 6 6 6];
             uibutton(qg,'Text','Importar Dados','ButtonPushedFcn',@(~,~)app.importarDados());
             uibutton(qg,'Text','Exportar Gráficos','ButtonPushedFcn',@(~,~)app.exportarTodosGraficos());
             uibutton(qg,'Text','Gerar Relatório','ButtonPushedFcn',@(~,~)app.gerarRelatorio());
             uibutton(qg,'Text','Ajuda','ButtonPushedFcn',@(~,~)app.abrirAjuda());
 
-            app.StatusLabel = uilabel(g,'Text','Status: pronto','FontWeight','bold','FontColor',[0.0 0.45 0.15]);
+            app.StatusLabel = uilabel(g,'Text','SMQE pronto para análise','FontWeight','bold','FontColor',[0.0 0.45 0.15]);
         end
 
         function createBottomPanel(app)
@@ -914,7 +950,7 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             app.log(['Projeto salvo: ' fullfile(p,f)]);
         end
         function novoProjeto(app), app.createDemoData(); app.refreshAll(); app.log('Novo projeto demonstrativo criado.'); end
-        function abrirAjuda(app), uialert(app.UIFigure,'Use as abas para importar, analisar, montar circuitos, simular, ver fasores, exportar figuras e gerar relatório.','Ajuda'); end
+        function abrirAjuda(app), uialert(app.UIFigure,'SMQE: importe ou valide os dados, confira o roteiro de ensaio, analise medições e qualidade de energia, monte circuitos didáticos quando necessário e gere o relatório final.','Ajuda do SMQE'); end
         function mostrarChecklist(app), app.TabGroup.SelectedTab = app.TabGroup.Children(strcmp({app.TabGroup.Children.Title},'9 Metrologia, TC/TP e Segurança')); end
         function editarMetadados(app), app.MetaText.Editable='on'; app.log('Metadados liberados para edição.'); end
         function saveCircuitCSV(app)

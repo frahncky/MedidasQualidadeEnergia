@@ -1,4 +1,4 @@
-% Atalho para abrir a Plataforma de Medidas, Medicao e Qualidade de Energia.
+% Atalho para abrir o SMQE - Simulador de Medicao e Qualidade de Energia.
 root = fileparts(mfilename('fullpath'));
 addpath(fullfile(root,'app'));
 addpath(fullfile(root,'src'));

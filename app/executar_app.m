@@ -1,4 +1,4 @@
-% Executar a Plataforma de Medidas, Medicao e Qualidade de Energia
+% Executar o SMQE - Simulador de Medicao e Qualidade de Energia
 % Requer MATLAB R2020b ou superior. Recomendado R2022b+.
 clear; clc;
 appDir = fileparts(mfilename('fullpath'));

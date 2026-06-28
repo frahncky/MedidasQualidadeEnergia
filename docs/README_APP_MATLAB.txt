@@ -1,4 +1,4 @@
-PLATAFORMA DE MEDIDAS, MEDICAO E QUALIDADE DE ENERGIA - MATLAB APP
+SMQE - SIMULADOR DE MEDICAO E QUALIDADE DE ENERGIA
 
 Arquivos principais:
 1. executar_app.m
@@ -26,7 +26,8 @@ COMO USAR:
 
 RECURSOS IMPLEMENTADOS:
 - Interface com 10 abas principais no estilo App Designer, com subtelas internas para os conteúdos didáticos.
-- Dashboard com indicadores.
+- Dashboard profissional com indicadores de energia, demanda, FP, harmonicos,
+  eventos, metrologia e qualidade de energia.
 - Importacao CSV/MAT/Excel.
 - Medidas basicas: tensao, corrente, resistencia, potencia.
 - Editor de circuitos didatico com componentes eletricos.
