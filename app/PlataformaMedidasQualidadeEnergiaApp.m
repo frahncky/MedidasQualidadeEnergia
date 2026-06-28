@@ -34,8 +34,12 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         AxEnergia matlab.ui.control.UIAxes
         AxScatter matlab.ui.control.UIAxes
         AxDiagrama matlab.ui.control.UIAxes
+        AxCargaStats matlab.ui.control.UIAxes
         TabelaResumo matlab.ui.control.Table
         TabelaEventos matlab.ui.control.Table
+        DashboardCardValueLabels cell = {}
+        DashboardCardSubLabels cell = {}
+        DashboardIndicatorsPanel matlab.ui.container.Panel
 
         % Editor de circuitos
         CircuitAxes matlab.ui.control.UIAxes
@@ -277,21 +281,73 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
 
         function createDashboardTab(app)
             tab = uitab(app.TabGroup,'Title','1 Dashboard');
-            g = uigridlayout(tab,[5 4]);
-            g.RowHeight = {72,210,210,160,'1x'}; g.ColumnWidth={'1x','1x','1x','1x'}; g.Padding=[8 8 8 8];
-            cards = {'Energia do Dia (kWh)','Demanda Máxima (kW)','FP Médio','THD-I Máx (%)'};
-            vals = {'--','--','--','--'};
-            for i=1:4
-                p = uipanel(g,'Title',cards{i},'FontWeight','bold'); p.Layout.Row=1; p.Layout.Column=i;
-                uilabel(p,'Text',vals{i},'FontSize',24,'FontWeight','bold','FontColor',[0.05 0.38 0.72],'HorizontalAlignment','center','Position',[5 8 220 34]);
+            g = uigridlayout(tab,[5 5]);
+            g.RowHeight = {78,'1.25x','1x',150,94};
+            g.ColumnWidth = {'1x','1x','1x','1x','1x'};
+            g.Padding = [8 8 8 8];
+            g.RowSpacing = 8;
+            g.ColumnSpacing = 8;
+
+            cards = {'Energia do Dia (kWh)','Demanda Máxima (kW)','FP Médio','THD-I Máx (%)','THD-V Máx (%)'};
+            colors = {[0.05 0.40 0.80],[0.90 0.32 0.10],[0.10 0.55 0.26],[0.42 0.14 0.76],[0.03 0.45 0.82]};
+            app.DashboardCardValueLabels = cell(1,numel(cards));
+            app.DashboardCardSubLabels = cell(1,numel(cards));
+            for i=1:numel(cards)
+                p = uipanel(g,'Title',cards{i},'FontWeight','bold','BackgroundColor',[0.985 0.99 1]);
+                p.Layout.Row = 1; p.Layout.Column = i;
+                cg = uigridlayout(p,[2 1]);
+                cg.RowHeight = {'1x',22};
+                cg.Padding = [8 2 8 2];
+                app.DashboardCardValueLabels{i} = uilabel(cg,'Text','--','FontSize',22,'FontWeight','bold','FontColor',colors{i},'HorizontalAlignment','center');
+                app.DashboardCardSubLabels{i} = uilabel(cg,'Text','Aguardando dados','FontSize',10,'FontColor',[0.20 0.28 0.36],'HorizontalAlignment','center');
             end
-            app.AxTempo = uiaxes(g); app.AxTempo.Layout.Row=2; app.AxTempo.Layout.Column=[1 2]; title(app.AxTempo,'Tensões e correntes no tempo');
-            app.AxHarmonicos = uiaxes(g); app.AxHarmonicos.Layout.Row=2; app.AxHarmonicos.Layout.Column=[3 4]; title(app.AxHarmonicos,'Espectro harmônico');
-            app.AxEnergia = uiaxes(g); app.AxEnergia.Layout.Row=3; app.AxEnergia.Layout.Column=[1 2]; title(app.AxEnergia,'Energia e demanda');
-            app.AxScatter = uiaxes(g); app.AxScatter.Layout.Row=3; app.AxScatter.Layout.Column=3; title(app.AxScatter,'FP × THD-I');
-            app.AxDiagrama = uiaxes(g); app.AxDiagrama.Layout.Row=3; app.AxDiagrama.Layout.Column=4; title(app.AxDiagrama,'Diagrama de medição');
+
+            app.AxTempo = uiaxes(g); app.AxTempo.Layout.Row=2; app.AxTempo.Layout.Column=[1 3]; title(app.AxTempo,'Tensões e correntes no tempo');
+            app.AxHarmonicos = uiaxes(g); app.AxHarmonicos.Layout.Row=2; app.AxHarmonicos.Layout.Column=[4 5]; title(app.AxHarmonicos,'Espectro harmônico de corrente');
+            app.AxEnergia = uiaxes(g); app.AxEnergia.Layout.Row=3; app.AxEnergia.Layout.Column=[1 2]; title(app.AxEnergia,'Tendência de energia e demanda');
+            app.AxCargaStats = uiaxes(g); app.AxCargaStats.Layout.Row=3; app.AxCargaStats.Layout.Column=3; title(app.AxCargaStats,'Comparação por tipo de carga');
+            app.AxScatter = uiaxes(g); app.AxScatter.Layout.Row=3; app.AxScatter.Layout.Column=[4 5]; title(app.AxScatter,'Dispersão: FP × THD-I');
             app.TabelaResumo = uitable(g); app.TabelaResumo.Layout.Row=4; app.TabelaResumo.Layout.Column=[1 2];
-            app.TabelaEventos = uitable(g); app.TabelaEventos.Layout.Row=4; app.TabelaEventos.Layout.Column=[3 4];
+            app.TabelaEventos = uitable(g); app.TabelaEventos.Layout.Row=4; app.TabelaEventos.Layout.Column=3;
+            app.AxDiagrama = uiaxes(g); app.AxDiagrama.Layout.Row=4; app.AxDiagrama.Layout.Column=[4 5]; title(app.AxDiagrama,'Diagrama de medição');
+            app.DashboardIndicatorsPanel = uipanel(g,'Title','Metrologia e Qualidade - Indicadores de Ensaio','FontWeight','bold','BackgroundColor',[0.98 0.985 0.99]);
+            app.DashboardIndicatorsPanel.Layout.Row=5; app.DashboardIndicatorsPanel.Layout.Column=[1 5];
+            app.createDashboardIndicators();
+        end
+
+        function createDashboardIndicators(app)
+            if isempty(app.DashboardIndicatorsPanel), return; end
+            ig = uigridlayout(app.DashboardIndicatorsPanel,[2 8]);
+            ig.RowHeight = {'1x','1x'};
+            ig.ColumnWidth = repmat({'1x'},1,8);
+            ig.Padding = [8 4 8 6];
+            ig.RowSpacing = 5;
+            ig.ColumnSpacing = 6;
+            items = { ...
+                'Medição de Tensão','220,1 V'; ...
+                'Medição de Corrente','125,3 A'; ...
+                'Resistência','10,24 ohm'; ...
+                'Continuidade','OK'; ...
+                'Aterramento','> 1000 Mohm'; ...
+                'Erro Absoluto','0,35 %'; ...
+                'Exatidão','+/-0,50 %'; ...
+                'Precisão','+/-0,25 %'; ...
+                'Incerteza Tipo A','0,15 %'; ...
+                'Incerteza Tipo B','0,20 %'; ...
+                'Incerteza Expandida','0,50 %'; ...
+                'Categorias','CAT II/III/IV'; ...
+                'TC Aberto: Risco','Detectado'; ...
+                'Calibração','Válida'; ...
+                'Rastreabilidade','Rastreável'; ...
+                'Resolução','0,01'};
+            for i=1:size(items,1)
+                p = uipanel(ig,'BackgroundColor',[1 1 1],'BorderType','line');
+                pg = uigridlayout(p,[2 1]);
+                pg.RowHeight = {18,'1x'};
+                pg.Padding = [4 2 4 2];
+                uilabel(pg,'Text',items{i,1},'FontSize',9,'FontWeight','bold','FontColor',[0.12 0.25 0.42],'HorizontalAlignment','center');
+                uilabel(pg,'Text',items{i,2},'FontSize',11,'FontWeight','bold','FontColor',[0.08 0.33 0.58],'HorizontalAlignment','center');
+            end
         end
 
         function createImportTab(app)
@@ -461,22 +517,48 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
         end
 
         function updateCards(app)
-            % Cards sao labels soltos dentro dos painéis; atualiza por ordem.
             try
-                d=app.Data; E=sum(d.P_kW)/60; D=max(d.P_kW); FP=mean(d.FP,'omitnan'); THD=max(d.THD_I_pct);
-                tabs=app.TabGroup.Children; dash=tabs(strcmp({tabs.Title},'1 Dashboard'));
-                panels=findall(dash,'Type','uipanel');
-                for i=1:numel(panels)
-                    labs=findall(panels(i),'Type','uilabel');
-                    if isempty(labs), continue; end
-                    titlep=panels(i).Title;
-                    if contains(titlep,'Energia'), labs(1).Text=sprintf('%.1f',E); end
-                    if contains(titlep,'Demanda'), labs(1).Text=sprintf('%.1f',D); end
-                    if contains(titlep,'FP'), labs(1).Text=sprintf('%.3f',FP); end
-                    if contains(titlep,'THD'), labs(1).Text=sprintf('%.1f',THD); end
+                if isempty(app.DashboardCardValueLabels), return; end
+                d=app.Data;
+                [E,~]=app.energySeries();
+                if isempty(E), energiaDia=0; else, energiaDia=E(end); end
+                demanda=app.demandSeries(15);
+                D=max(demanda,[],'omitnan');
+                FP=mean(d.FP,'omitnan');
+                THDI=max(d.THD_I_pct,[],'omitnan');
+                THDV=max(d.THD_V_pct,[],'omitnan');
+                vals={sprintf('%.2f',energiaDia),sprintf('%.1f',D),sprintf('%.3f',FP),sprintf('%.2f',THDI),sprintf('%.2f',THDV)};
+                subs={sprintf('Max: %.1f kWh | Media: %.1f kW',max(E,[],'omitnan'),mean(d.P_kW,'omitnan')), ...
+                    sprintf('Registrada as %s',app.peakTimeText(demanda)), ...
+                    sprintf('Min: %.3f | Max: %.3f',min(d.FP,[],'omitnan'),max(d.FP,[],'omitnan')), ...
+                    sprintf('Media: %.2f %%',mean(d.THD_I_pct,'omitnan')), ...
+                    sprintf('Media: %.2f %%',mean(d.THD_V_pct,'omitnan'))};
+                for i=1:min(numel(vals),numel(app.DashboardCardValueLabels))
+                    if ~isempty(app.DashboardCardValueLabels{i}) && isvalid(app.DashboardCardValueLabels{i})
+                        app.DashboardCardValueLabels{i}.Text=vals{i};
+                    end
+                    if ~isempty(app.DashboardCardSubLabels{i}) && isvalid(app.DashboardCardSubLabels{i})
+                        app.DashboardCardSubLabels{i}.Text=subs{i};
+                    end
                 end
             catch ME
                 app.log(['Erro ao atualizar cards: ' ME.message]);
+            end
+        end
+
+        function s=peakTimeText(app,series)
+            try
+                t=app.getTimeVector();
+                [~,idx]=max(series);
+                if isdatetime(t)
+                    ti=t(idx);
+                    ti.Format='HH:mm';
+                    s=char(ti);
+                else
+                    s=sprintf('amostra %d',idx);
+                end
+            catch
+                s='--';
             end
         end
 
@@ -485,18 +567,28 @@ classdef PlataformaMedidasQualidadeEnergiaApp < handle
             if isempty(d), return; end
             t = app.getTimeVector();
             cla(app.AxTempo); hold(app.AxTempo,'on');
-            plot(app.AxTempo,t,d.Va_V,'DisplayName','Va'); plot(app.AxTempo,t,d.Vb_V,'DisplayName','Vb'); plot(app.AxTempo,t,d.Vc_V,'DisplayName','Vc');
-            yyaxis(app.AxTempo,'right'); plot(app.AxTempo,t,d.Ia_A,'DisplayName','Ia'); ylabel(app.AxTempo,'Corrente (A)');
-            yyaxis(app.AxTempo,'left'); ylabel(app.AxTempo,'Tensão (V)'); grid(app.AxTempo,'on'); legend(app.AxTempo,'Location','best');
+            yyaxis(app.AxTempo,'left');
+            plot(app.AxTempo,t,d.Va_V,'LineWidth',0.9,'DisplayName','VL1');
+            plot(app.AxTempo,t,d.Vb_V,'LineWidth',0.9,'DisplayName','VL2');
+            plot(app.AxTempo,t,d.Vc_V,'LineWidth',0.9,'DisplayName','VL3');
+            ylabel(app.AxTempo,'Tensão (V)');
+            yyaxis(app.AxTempo,'right');
+            plot(app.AxTempo,t,d.Ia_A,'LineWidth',0.9,'DisplayName','IL1');
+            plot(app.AxTempo,t,d.Ib_A,'LineWidth',0.9,'DisplayName','IL2');
+            plot(app.AxTempo,t,d.Ic_A,'LineWidth',0.9,'DisplayName','IL3');
+            ylabel(app.AxTempo,'Corrente (A)');
+            grid(app.AxTempo,'on'); legend(app.AxTempo,'Location','northoutside','Orientation','horizontal');
+            title(app.AxTempo,'Tensões e correntes no tempo');
             app.CurrentAxes = app.AxTempo;
 
             H=app.harmonicTable('Ia_A',25);
-            cla(app.AxHarmonicos); bar(app.AxHarmonicos,H.Ordem,H.Magnitude_pct); hold(app.AxHarmonicos,'on'); plot(app.AxHarmonicos,H.Ordem,H.Limite_pct,'--r','DisplayName','Limite ref.'); xlabel(app.AxHarmonicos,'Ordem harmônica'); ylabel(app.AxHarmonicos,'% fundamental'); title(app.AxHarmonicos,sprintf('Espectro harmônico - THD %.2f %%',app.calcTHD(H))); grid(app.AxHarmonicos,'on');
-            [energia,tEnergia]=app.energySeries(); cla(app.AxEnergia); yyaxis(app.AxEnergia,'left'); plot(app.AxEnergia,t,energia,'LineWidth',1.5); ylabel(app.AxEnergia,'kWh'); yyaxis(app.AxEnergia,'right'); plot(app.AxEnergia,t,d.P_kW); if ~isempty(tEnergia), hold(app.AxEnergia,'on'); plot(app.AxEnergia,t,app.demandSeries(15),'LineWidth',1.2); end; ylabel(app.AxEnergia,'kW'); grid(app.AxEnergia,'on'); title(app.AxEnergia,'Energia acumulada e demanda');
-            cla(app.AxScatter); scatter(app.AxScatter,d.FP,d.THD_I_pct,18,d.P_kW,'filled'); xlabel(app.AxScatter,'FP'); ylabel(app.AxScatter,'THD-I (%)'); grid(app.AxScatter,'on'); colorbar(app.AxScatter);
+            cla(app.AxHarmonicos); bar(app.AxHarmonicos,H.Ordem,H.Magnitude_pct,'FaceColor',[0.10 0.42 0.72]); hold(app.AxHarmonicos,'on'); plot(app.AxHarmonicos,H.Ordem,H.Limite_pct,'--r','DisplayName','Limite ref.'); xlabel(app.AxHarmonicos,'Ordem harmônica'); ylabel(app.AxHarmonicos,'% fundamental'); title(app.AxHarmonicos,sprintf('Espectro harmônico - THD %.2f %%',app.calcTHD(H))); grid(app.AxHarmonicos,'on'); set(app.AxHarmonicos,'YScale','log');
+            [energia,tEnergia]=app.energySeries(); cla(app.AxEnergia); yyaxis(app.AxEnergia,'left'); plot(app.AxEnergia,t,energia,'LineWidth',1.5,'Color',[0.05 0.34 0.78]); ylabel(app.AxEnergia,'kWh'); yyaxis(app.AxEnergia,'right'); plot(app.AxEnergia,t,d.P_kW,'Color',[0.95 0.36 0.12]); if ~isempty(tEnergia), hold(app.AxEnergia,'on'); plot(app.AxEnergia,t,app.demandSeries(15),'LineWidth',1.2,'Color',[0.18 0.58 0.20]); end; ylabel(app.AxEnergia,'kW'); grid(app.AxEnergia,'on'); title(app.AxEnergia,'Tendência de energia e demanda');
+            S=app.loadStatsTable(); cla(app.AxCargaStats); bar(app.AxCargaStats,categorical(S.Tipo),S.P_media_kW,'FaceColor',[0.36 0.59 0.78]); hold(app.AxCargaStats,'on'); errorbar(app.AxCargaStats,categorical(S.Tipo),S.P_media_kW,S.P_desvio_kW,'.k'); ylabel(app.AxCargaStats,'kW'); title(app.AxCargaStats,'Comparação por tipo de carga'); grid(app.AxCargaStats,'on');
+            cla(app.AxScatter); scatter(app.AxScatter,d.FP,d.THD_I_pct,14,d.P_kW,'filled'); xlabel(app.AxScatter,'Fator de Potência'); ylabel(app.AxScatter,'THD-I (%)'); title(app.AxScatter,'Dispersão: FP × THD-I'); grid(app.AxScatter,'on'); colorbar(app.AxScatter);
             cla(app.AxDiagrama); axis(app.AxDiagrama,'off'); app.desenharAnalisador(app.AxDiagrama);
             app.TabelaResumo.Data = app.resumoTable();
-            app.TabelaEventos.Data = app.eventosTable();
+            app.TabelaEventos.Data = app.detectEventsTable();
         end
 
         function t = getTimeVector(app)
