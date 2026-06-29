@@ -9,7 +9,7 @@ Build command: npm run build
 Deploy command: npx wrangler deploy
 Root directory: web
 Build output directory: dist
-Node version: 20
+Node version: 22
 ```
 
 O `wrangler.toml` fica nesta pasta porque o Cloudflare executa o build dentro de `web`.
