@@ -1454,8 +1454,52 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
     : []
   const visualCount = isY ? Math.max(1, branchLoads.length) : Math.max(1, physicalLoads.length)
   const W = Math.max(800, 250 + visualCount * (isY ? 120 : 150))
-  const H = isY ? 360 : 370
+  const H = isY ? 400 : 445
   const y = { A:62, B:91, C:120, N:315 }
+  const phaseCurrentLabels = ['A', 'B', 'C'].map(ph => {
+    const I = circuit.lineCurrents?.[ph] || [0, 0]
+    return `I${ph} = ${fmt(cx.mag(I), 3)} A ∠ ${fmt(cx.arg(I) * 180 / Math.PI, 1)}°`
+  })
+  const neutralCurrentLabel = isY && circuit.IN
+    ? `IN = ${fmt(cx.mag(circuit.IN), 3)} A ∠ ${fmt(cx.arg(circuit.IN) * 180 / Math.PI, 1)}°`
+    : null
+  const summaryLines = [
+    `Resumo total · P = ${fmt(circuit.P_tot/1000, 2)} kW · Q = ${fmt(circuit.Q_tot/1000, 2)} kvar · S = ${fmt(circuit.S_tot/1000, 2)} kVA · FP = ${fmt(circuit.FP_tot, 4)}`,
+    phaseCurrentLabels.join(' · '),
+    neutralCurrentLabel,
+  ].filter(Boolean)
+  const summaryBoxH = 18 + summaryLines.length * 14
+  const summaryBoxY = H - summaryBoxH - 12
+
+  function CurrentBadge({ x, y, lines, width = 106 }) {
+    const height = 17 + Math.max(0, lines.length - 1) * 11
+    return (
+      <g>
+        <rect
+          x={x - width/2}
+          y={y - 11}
+          width={width}
+          height={height}
+          rx="6"
+          fill="var(--c-surface-2)"
+          stroke="var(--c-border)"
+        />
+        {lines.map((line, index) => (
+          <text
+            key={line.label}
+            x={x}
+            y={y + index * 11}
+            textAnchor="middle"
+            fontSize="8.5"
+            fontWeight="800"
+            fill="var(--c-text-muted)"
+          >
+            {line.label}: I {fmt(line.mag, 3)} A ∠ {fmt(line.angle, 1)}°
+          </text>
+        ))}
+      </g>
+    )
+  }
 
   function PhaseBuses() {
     return (
@@ -1481,6 +1525,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
     const x = 235 + index * 120
     const blockY = 225
     const spec = { type: triType(load.type), vals: triLoadVals(load) }
+    const current = triLoadCurrentInfo(load, p, target)
     return (
       <g>
         <line x1={x} y1={y[target]} x2={x} y2={blockY - 24} stroke={colors[target]} strokeWidth="2" />
@@ -1488,6 +1533,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
         <circle cx={x} cy={y[target]} r="4" fill={colors[target]} />
         <circle cx={x} cy={y.N} r="4" fill={colors.N} />
         <TriLoadBlock x={x} y={blockY} spec={spec} label={`${target}-N${load.copy > 1 ? `.${load.copy}` : ''}`} />
+        <CurrentBadge x={x} y={blockY + 43} lines={[{ label: target, ...current }]} />
       </g>
     )
   }
@@ -1500,6 +1546,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
     const spec = { type: triType(load.type), vals: triLoadVals(load) }
     const targets = triLoadTargets(load, p.ligacao)
     const active = target => targets.includes(target)
+    const currentLines = targets.map(target => ({ label: target, ...triLoadCurrentInfo(load, p, target) }))
 
     return (
       <g>
@@ -1518,6 +1565,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
           {load.scope}{load.copy > 1 ? `.${load.copy}` : ''} · {load.type}
         </text>
         <text x={x} y="324" textAnchor="middle" fontSize="8.5" fill="var(--c-text-muted)">{triSpecLine(spec)}</text>
+        <CurrentBadge x={x} y={354} lines={currentLines} width={112} />
         <title>{TRI_SCOPE_LABELS[load.scope] || load.scope}: {spec.type.label} — {triSpecLine(spec)}</title>
       </g>
     )
@@ -1548,11 +1596,53 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
           Adicione uma carga para montar o circuito trifásico
         </text>
       )}
-      <text x="28" y={H-24} fontSize="11" fill="var(--c-text-muted)">
-        P {fmt(circuit.P_tot/1000,2)} kW · Q {fmt(circuit.Q_tot/1000,2)} kvar · FP {fmt(circuit.FP_tot,4)}
-      </text>
+      <g>
+        <rect
+          x="20"
+          y={summaryBoxY}
+          width={W - 40}
+          height={summaryBoxH}
+          rx="8"
+          fill="var(--c-surface)"
+          stroke="var(--c-border)"
+        />
+        {summaryLines.map((line, index) => (
+          <text
+            key={line}
+            x="32"
+            y={summaryBoxY + 19 + index * 14}
+            fontSize="10.5"
+            fontWeight={index === 0 ? '800' : '700'}
+            fill="var(--c-text-muted)"
+          >
+            {line}
+          </text>
+        ))}
+      </g>
     </svg>
   )
+}
+
+function triLoadCurrentInfo(load, p, target) {
+  const ligacao = p.ligacao
+  const VL = parseNum(p.VL) || 13800
+  const f = parseNum(p.freq) || 60
+  const unitLoad = { ...load, qty: 1 }
+  const Y = triLoadAdmittance(unitLoad, f, VL)
+  const yPhases = {
+    A: cx.polar(VL / Math.sqrt(3), 0),
+    B: cx.polar(VL / Math.sqrt(3), -2*Math.PI/3),
+    C: cx.polar(VL / Math.sqrt(3), 2*Math.PI/3),
+  }
+  const dBranches = {
+    AB: cx.polar(VL, Math.PI/6),
+    BC: cx.polar(VL, Math.PI/6 - 2*Math.PI/3),
+    CA: cx.polar(VL, Math.PI/6 + 2*Math.PI/3),
+  }
+  const V = (ligacao === 'Y' ? yPhases : dBranches)[target] || [0, 0]
+  const I = cx.mul(V, Y)
+
+  return { mag: cx.mag(I), angle: cx.arg(I) * 180 / Math.PI }
 }
 
 function triLoadContribution(load, p) {
@@ -1929,21 +2019,6 @@ function SubCATri() {
         <div className="panel" style={{ flex:'0 0 230px', minHeight:230 }}>
           <div className="panel__head">Gráficos por Carga</div>
           <TriLoadCharts data={triCharts} />
-        </div>
-
-        {/* Total summary */}
-        <div className="panel" style={{ flexShrink:0 }}>
-          <div className="panel__head">Resumo Total</div>
-          <div style={{ display:'flex', gap:16, padding:'8px 14px', fontSize:12, flexWrap:'wrap' }}>
-            <span>P = <b>{fmt(triCircuit.P_tot/1000,2)} kW</b></span>
-            <span>Q = <b>{fmt(triCircuit.Q_tot/1000,2)} kvar</b></span>
-            <span>S = <b>{fmt(triCircuit.S_tot/1000,2)} kVA</b></span>
-            <span>FP = <b style={{color:triCircuit.FP_tot<0.92&&triCircuit.S_tot>0?'var(--c-danger)':undefined}}>{fmt(triCircuit.FP_tot,4)}</b></span>
-            <span>IA = <b>{fmt(cx.mag(triCircuit.lineCurrents.A),3)} A</b></span>
-            <span>IB = <b>{fmt(cx.mag(triCircuit.lineCurrents.B),3)} A</b></span>
-            <span>IC = <b>{fmt(cx.mag(triCircuit.lineCurrents.C),3)} A</b></span>
-            {isY && <span>|IN| = <b>{fmt(cx.mag(triCircuit.IN),3)} A</b></span>}
-          </div>
         </div>
       </div>
 
