@@ -1108,9 +1108,23 @@ body, button, input, select, textarea,
   overflow: visible;
 }
 
-/* When Simulacao is embedded under the inner-nav, subtract its 44px */
+/* When Simulacao is embedded inside Circuitos:
+   - remove the viewport-based min-height from sim-page
+   - give sim-chart-grid a fixed height so 1fr rows resolve correctly
+   - without this, overflow: visible lets the grid grow unbounded */
 .circuitos-page .sim-page {
-  min-height: clamp(820px, calc(100vh - 280px), 940px);
+  min-height: 0;
+}
+
+.circuitos-page .sim-chart-grid {
+  flex: none;
+  min-height: 0;
+  height: 560px;
+  grid-template-rows: repeat(2, 1fr);
+}
+
+.circuitos-page .sim-chart-grid > .panel {
+  min-height: 0;
 }
 
 .circuit-editor-grid {
