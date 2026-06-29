@@ -2,6 +2,8 @@ import { useState, useRef } from 'react'
 import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
+import { useToast } from '../components/Toast'
+import { exportCSV } from '../utils/export'
 
 const SOURCES_LIST = [
   { name: 'PQA-5000 #12345', group: 'Aquisições Locais',              status: 'Online',  color: '#16a34a' },
@@ -70,7 +72,17 @@ const QUALITY_CHECKS = [
   { name: 'Consistência trifásica',ok: true, val: 'OK',     tone: 'green' },
 ]
 
+const PREVIEW_ROWS = Array.from({ length: 20 }, (_, i) => ({
+  timestamp: `2024-05-${String(i + 1).padStart(2,'0')} 00:00`,
+  Va: +(219.5 + Math.sin(i*0.4)*1.2).toFixed(2),
+  Vb: +(220.1 + Math.sin(i*0.4+2)*1.1).toFixed(2),
+  Vc: +(219.8 + Math.sin(i*0.4+4)*1.3).toFixed(2),
+  Ia: +(610 + Math.sin(i*0.3)*8).toFixed(1),
+  FP: +(0.92 + Math.random()*0.04).toFixed(3),
+}))
+
 export default function Dados() {
+  const toast = useToast()
   const [format, setFormat] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -118,7 +130,7 @@ export default function Dados() {
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <div className="panel" style={{ flex: 1 }}>
           <div className="panel__head">Fontes de Dados
-            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => alert('Adicionar nova fonte de dados…')}>+ Adicionar</button>
+            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => toast('Funcionalidade de adicionar fonte disponível na versão completa', 'info')}>+ Adicionar</button>
           </div>
           <div className="panel__body scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
             {GROUPS.map(group => (
@@ -207,8 +219,8 @@ export default function Dados() {
               <select className="form-select" value={mappingTemplate} onChange={e => setMappingTemplate(e.target.value)} style={{ width: 220 }}>
                 {['Padrão - PQ e Energia', 'IEC 61850', 'COMTRADE', 'Personalizado'].map(o => <option key={o}>{o}</option>)}
               </select>
-              <button className="btn btn-ghost btn-sm" onClick={() => alert('Mapeamento carregado!')}>Carregar</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => alert('Mapeamento salvo!')}>Salvar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => toast('Mapeamento carregado', 'success')}>Carregar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => toast('Mapeamento salvo', 'success')}>Salvar</button>
             </div>
           </div>
           <div className="panel__body--np scroll-y" style={{ maxHeight: 305, overflow: 'auto' }}>
@@ -321,7 +333,7 @@ export default function Dados() {
             ))}
             <button className="btn btn-primary btn-sm" style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
               disabled={!loaded}
-              onClick={() => alert('Limpeza aplicada com sucesso!')}>
+              onClick={() => { exportCSV(PREVIEW_ROWS, 'dados_limpos.csv'); toast('Limpeza aplicada — arquivo CSV exportado', 'success') }}>
               Aplicar Limpeza
             </button>
           </div>

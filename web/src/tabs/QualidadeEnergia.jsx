@@ -4,6 +4,9 @@ import {
   ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell
 } from 'recharts'
 import { calcTHD, generateHarmonics, demoEvents, SEV_CLASS, energySeries } from '../utils/powerQuality'
+import { useAppContext } from '../context/AppContext'
+import { useToast } from '../components/Toast'
+import { exportCSV } from '../utils/export'
 import Fasores from './Fasores'
 
 const PHASE_DATA = {
@@ -16,11 +19,10 @@ const PHASE_DATA = {
 const BASE_SERIES = energySeries()
 
 export default function QualidadeEnergia({ onNavigate }) {
+  const { installation: instalacao, setInstallation: setInstalacao, dateFrom, setDateFrom, dateTo, setDateTo } = useAppContext()
+  const toast = useToast()
   const [sub, setSub] = useState('indicadores')
   const [fase, setFase] = useState('Fase A')
-  const [instalacao, setInstalacao] = useState('Subestação Principal')
-  const [dateFrom, setDateFrom] = useState('01/05/2024')
-  const [dateTo, setDateTo] = useState('31/05/2024')
   const [loading, setLoading] = useState(false)
   const [seed, setSeed] = useState(0)
 
@@ -231,7 +233,7 @@ export default function QualidadeEnergia({ onNavigate }) {
           <div style={{ height: 190, display: 'grid', gridTemplateColumns: '1fr 280px', gap: 8, padding: '8px 12px 10px', flexShrink: 0 }}>
             <div className="panel">
               <div className="panel__head">Alarmes e Eventos Recentes
-                <span className="panel__head-actions"><button className="btn btn-ghost btn-sm" onClick={() => alert('Exportando CSV…')}>Exportar CSV</button></span>
+                <span className="panel__head-actions"><button className="btn btn-ghost btn-sm" onClick={() => { exportCSV(events.map(e=>({DataHora:e.ts,Tipo:e.tipo,Descricao:e.desc,Severidade:e.sev,Fase:e.fase,Duracao:e.dur})), 'eventos_qe.csv'); toast('CSV exportado com sucesso', 'success') }}>Exportar CSV</button></span>
               </div>
               <div style={{ overflow: 'auto', height: 'calc(100% - 38px)' }}>
                 <table className="tbl">

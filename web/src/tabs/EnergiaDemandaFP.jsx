@@ -4,6 +4,8 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
 import { energySeries } from '../utils/powerQuality'
+import { useAppContext } from '../context/AppContext'
+import { useToast } from '../components/Toast'
 
 const daily = energySeries(31)
 const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'].map((m, i) => ({
@@ -44,9 +46,8 @@ function calcCapacitorBank(P_kW, fpAtual, fpAlvo) {
 }
 
 export default function EnergiaDemandaFP({ onNavigate }) {
-  const [dateFrom, setDateFrom] = useState('01/05/2024 00:00')
-  const [dateTo, setDateTo] = useState('31/05/2024 23:59')
-  const [instalacao, setInstalacao] = useState('Subestação Principal')
+  const { installation: instalacao, setInstallation: setInstalacao, dateFrom, setDateFrom, dateTo, setDateTo } = useAppContext()
+  const toast = useToast()
   const [tarifa, setTarifa] = useState('Grupo A4 Verde')
   const [fpAlvo, setFpAlvo] = useState('0,98')
   const [showEconomy, setShowEconomy] = useState(false)
@@ -63,15 +64,15 @@ export default function EnergiaDemandaFP({ onNavigate }) {
 
   function handleCalcular() {
     setShowEconomy(false); setCalculating(true)
-    setTimeout(() => { setCalculating(false); setShowEconomy(true) }, 600)
+    setTimeout(() => { setCalculating(false); setShowEconomy(true); toast('Análise de economia calculada', 'success') }, 600)
   }
 
   function handleSimular() {
-    setShowSim(true)
+    setShowSim(true); toast('Simulação de FP carregada', 'info')
   }
 
   function handleComparar() {
-    setShowCompare(true)
+    setShowCompare(true); toast('Comparativo de cenários gerado', 'info')
   }
 
   return (

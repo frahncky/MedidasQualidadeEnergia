@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
+import { useToast } from '../components/Toast'
+import { exportCSV } from '../utils/export'
 
 const INSTRUMENTS = [
   { name: 'Voltímetro',           mode: 'CA/CC',    range: '0 – 1000 V',    icon: 'V',   model: 'VM-1000',  class: '0,2',  cert: 'CAL-2024-0875', nextCal: '15/11/2025', status: 'Calibrado',    statusColor: '#16a34a' },
@@ -43,6 +45,7 @@ const comparison = [
 ]
 
 export default function Medidas({ onNavigate }) {
+  const toast = useToast()
   const [activeInstr, setActiveInstr] = useState(0)
   const [measureType, setMeasureType] = useState('Tensão')
   const [method, setMethod] = useState('direta')
@@ -221,10 +224,10 @@ export default function Medidas({ onNavigate }) {
           <div className="panel">
             <div className="panel__head">13. Exportação e Relatórios</div>
             <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => alert('Exportando leituras em CSV…')}>Exportar Leituras</button>
-              <button className="btn btn-primary btn-sm" onClick={() => onNavigate?.('relatorios')}>Gerar Relatório</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => alert('Captura de tela salva!')}>Capturar Tela</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => alert('Abrindo configurações…')}>Configurar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { exportCSV(wave.slice(0,50).map((d,i)=>({amostra:i+1,...d})), 'leituras_medidas.csv'); toast('Leituras exportadas em CSV', 'success') }}>Exportar Leituras</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { toast('Abrindo gerador de relatórios', 'info'); onNavigate?.('relatorios') }}>Gerar Relatório</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => toast('Captura de tela salva na pasta de downloads', 'success')}>Capturar Tela</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => toast('Abrindo configurações do instrumento…', 'info')}>Configurar</button>
             </div>
           </div>
         </div>

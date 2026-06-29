@@ -4,6 +4,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine
 } from 'recharts'
 import { demoEvents, SEV_CLASS } from '../utils/powerQuality'
+import { useAppContext } from '../context/AppContext'
+import { useToast } from '../components/Toast'
 
 const INSTALLATIONS = ['Subestação Principal', 'Laboratório LQE', 'Fábrica Norte', 'Almoxarifado']
 const LOAD_TYPES = ['Todas', 'Resistiva', 'Motor', 'Eletrônica', 'Iluminação']
@@ -95,8 +97,8 @@ const HARMONIC_DATA = [1, 3, 5, 7, 9, 11, 13].map(n => ({
 }))
 
 export default function Dashboard({ onNavigate }) {
-  const [period, setPeriod] = useState('Mês')
-  const [installation, setInstallation] = useState('Subestação Principal')
+  const { installation, setInstallation, period, setPeriod } = useAppContext()
+  const toast = useToast()
   const [loadType, setLoadType] = useState('Todas')
   const [loading, setLoading] = useState(false)
   const [seed, setSeed] = useState(0)
@@ -148,7 +150,7 @@ export default function Dashboard({ onNavigate }) {
         <button className="btn btn-primary btn-sm" onClick={handleAtualizar} disabled={loading}>
           {loading ? '…' : 'Atualizar'}
         </button>
-        <button className="btn btn-ghost btn-sm" onClick={() => onNavigate?.('relatorios')}>
+        <button className="btn btn-ghost btn-sm" onClick={() => { toast('Abrindo gerador de relatórios', 'info'); onNavigate?.('relatorios') }}>
           Gerar Relatório
         </button>
       </div>

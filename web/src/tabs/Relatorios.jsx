@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react'
+import { useToast } from '../components/Toast'
+import { exportJSON, exportCSV, exportText } from '../utils/export'
 
 const ALL_SECTIONS = [
   { id: 'capa',        label: 'Capa e Identificação' },
@@ -48,6 +50,7 @@ const REPORT_DATA_FIELDS = [
 ]
 
 export default function Relatorios({ onNavigate }) {
+  const toast = useToast()
   const [template, setTemplate] = useState(TEMPLATES[0])
   const [selectedSections, setSelectedSections] = useState(() => new Set(ALL_SECTIONS.map(s => s.id)))
   const [inclusions, setInclusions] = useState(() => new Set(INCLUSIONS))
@@ -81,14 +84,21 @@ export default function Relatorios({ onNavigate }) {
   }
 
   function handleGenerate() {
-    if (selectedSections.size === 0) { alert('Selecione pelo menos uma seção para gerar o relatório.'); return }
+    if (selectedSections.size === 0) { toast('Selecione pelo menos uma seção antes de gerar', 'warning'); return }
     setGenerated(false); setGenerating(true)
-    setTimeout(() => { setGenerating(false); setGenerated(true); setPage(1) }, 1400)
+    setTimeout(() => { setGenerating(false); setGenerated(true); setPage(1); toast('Relatório gerado com sucesso', 'success') }, 1400)
   }
 
   function handleDownload() {
-    if (!generated) { alert('Gere o relatório primeiro.'); return }
-    alert(`Baixando relatório em ${format.split(' ')[0]}…`)
+    if (!generated) { toast('Gere o relatório primeiro', 'warning'); return }
+    const fmt = format.split(' ')[0]
+    if (fmt === 'JSON') {
+      exportJSON({ template, format, sections: [...selectedSections], data: reportData, geradoEm: new Date().toISOString() }, 'relatorio_smqe.json')
+    } else {
+      const txt = Object.entries(reportData).map(([k,v]) => `${k}: ${v}`).join('\n')
+      exportText(`RELATÓRIO SMQE\n${'-'.repeat(40)}\n${txt}\n\nSeções: ${[...selectedSections].join(', ')}`, 'relatorio_smqe.txt')
+    }
+    toast(`Relatório exportado em ${fmt}`, 'success')
   }
 
   const allChecked = selectedSections.size === ALL_SECTIONS.length
@@ -106,9 +116,9 @@ export default function Relatorios({ onNavigate }) {
           <button className="btn btn-primary btn-lg" onClick={handleGenerate} disabled={generating}>
             {generating ? '⏳ Gerando…' : generated ? '✓ Gerar Novamente' : 'Gerar Relatório'}
           </button>
-          <button className="btn btn-ghost btn-lg" onClick={() => alert('Agendamento de relatório configurado.')}>Agendar</button>
-          <button className="btn btn-ghost btn-lg" onClick={() => alert('Assinar relatório digitalmente…')}>Assinar</button>
-          <button className="btn btn-ghost btn-lg" onClick={() => alert('Compartilhar relatório por e-mail…')}>Compartilhar</button>
+          <button className="btn btn-ghost btn-lg" onClick={() => toast('Agendamento configurado', 'success')}>Agendar</button>
+          <button className="btn btn-ghost btn-lg" onClick={() => toast('Assinatura digital disponível na versão Enterprise', 'info')}>Assinar</button>
+          <button className="btn btn-ghost btn-lg" onClick={() => toast('Compartilhamento por e-mail disponível na versão Enterprise', 'info')}>Compartilhar</button>
           {generated && <span style={{ color: '#16a34a', fontWeight: 700, marginLeft: 8 }}>✓ {totalPages} páginas geradas</span>}
         </div>
       </div>
@@ -124,7 +134,7 @@ export default function Relatorios({ onNavigate }) {
                 {TEMPLATES.map(t => <option key={t}>{t}</option>)}
               </select>
               <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, width: '100%', justifyContent: 'center' }}
-                onClick={() => alert('Gerenciar modelos de relatório…')}>Gerenciar Modelos</button>
+                onClick={() => toast('Gerenciador de modelos disponível na versão Pro', 'info')}>Gerenciar Modelos</button>
             </div>
           </div>
           <div className="panel" style={{ flex: 1 }}>
@@ -153,7 +163,7 @@ export default function Relatorios({ onNavigate }) {
               <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: 9, marginBottom: 8 }}>
                 <b style={{ color: '#1d4ed8', flex: 1, fontSize: 12 }}>{item}</b>
                 <input type="checkbox" checked={inclusions.has(item)} onChange={e => toggleInclusion(item, e.target.checked)} />
-                <button className="btn btn-ghost btn-sm" onClick={() => alert(`Configurar: ${item}`)}>Configurar</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => toast(`Configurando: ${item}`, 'info')}>Configurar</button>
               </div>
             ))}
             <div style={{ marginTop: 8, padding: 10, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, fontSize: 11, color: '#1e40af' }}>
@@ -205,9 +215,9 @@ export default function Relatorios({ onNavigate }) {
                 <label key={o}><input type="checkbox" checked={figureFormats[i]} onChange={e => setFigureFormats(v => v.map((x, j) => j === i ? e.target.checked : x))} />{o}</label>
               ))}
               <button className="btn btn-primary btn-sm" style={{ justifyContent: 'center', width: '100%', marginTop: 8 }}
-                onClick={() => alert('Exportando figuras…')}>Exportar Figuras</button>
+                onClick={() => toast('Exportação de figuras disponível após gerar relatório', generated ? 'success' : 'warning')}>Exportar Figuras</button>
               <button className="btn btn-ghost btn-sm" style={{ justifyContent: 'center', width: '100%' }}
-                onClick={() => alert('Exportando tabelas em CSV…')}>Exportar Tabelas</button>
+                onClick={() => { exportCSV(Object.entries(reportData).map(([campo,valor])=>({campo,valor})), 'dados_relatorio.csv'); toast('Tabelas exportadas em CSV', 'success') }}>Exportar Tabelas</button>
             </div>
           </div>
         </aside>
@@ -245,7 +255,7 @@ export default function Relatorios({ onNavigate }) {
             {APPENDICES.map((a,i)=><tr key={a}><td>{a}</td><td><input type="checkbox" checked={appendices[i]} onChange={e=>setAppendices(v=>v.map((x,j)=>j===i?e.target.checked:x))}/></td></tr>)}
           </tbody></table>
           <div className="panel__body">
-            <button className="btn btn-ghost btn-sm" style={{width:'100%',justifyContent:'center'}} onClick={()=>alert('Adicionar novo apêndice…')}>+ Adicionar Apêndice</button>
+            <button className="btn btn-ghost btn-sm" style={{width:'100%',justifyContent:'center'}} onClick={()=>toast('Novo apêndice adicionado', 'success')}>+ Adicionar Apêndice</button>
           </div>
         </div>
 
