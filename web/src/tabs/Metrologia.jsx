@@ -43,7 +43,7 @@ export default function Metrologia() {
 
       <div className="panel">
         <div className="panel__head">Classe de Exatidão</div>
-        <table className="tbl"><tbody>{['0,1', '0,25', '0,2', '0,5S', '0,5', '1', '3'].map(c => <tr key={c} style={c === '0,5' ? { background: '#dbeafe', fontWeight: 800 } : undefined}><td>{c}</td><td>± {c.replace('S', '')}%</td></tr>)}</tbody></table>
+        <table className="tbl"><tbody>{['0,1', '0,25', '0,2', '0,5S', '0,5', '1', '3'].map(c => <tr key={c} className={c === '0,5' ? 'tbl-row-highlight' : undefined} style={c === '0,5' ? { fontWeight: 800 } : undefined}><td>{c}</td><td>± {c.replace('S', '')}%</td></tr>)}</tbody></table>
         <div className="panel__body" style={{ color: '#1d4ed8', fontWeight: 700 }}>Conforme IEC 61869-1 / IEC 60044</div>
       </div>
 
@@ -52,7 +52,7 @@ export default function Metrologia() {
         <div className="panel__body">
           {['SI', 'LABMETRO / RBC', 'Laboratorios Acreditados', 'Laboratorios Internos', 'Instrumentos de Trabalho'].map((n, i) => (
             <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <span style={{ width: 30, height: 30, borderRadius: 30, background: '#dbeafe', display: 'grid', placeItems: 'center', color: '#1d4ed8', fontWeight: 800 }}>{i + 1}</span>
+              <span className="step-circle">{i + 1}</span>
               <b>{n}</b>
             </div>
           ))}

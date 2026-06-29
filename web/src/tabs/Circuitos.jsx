@@ -44,7 +44,7 @@ export default function Circuitos() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
             {COMPONENTS.map(([name, icon]) => (
               <button key={name} className="instr-btn" style={{ textAlign: 'center', padding: 10 }}>
-                <div style={{ fontWeight: 800, fontSize: 17, color: '#0f172a' }}>{icon}</div>
+                <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--c-text)' }}>{icon}</div>
                 <div style={{ fontSize: 11 }}>{name}</div>
               </button>
             ))}
@@ -63,7 +63,7 @@ export default function Circuitos() {
       <main className="panel" style={{ minHeight: 0 }}>
         <div className="panel__body--np" style={{ height: '100%', backgroundImage: 'radial-gradient(#dbe4f0 1px, transparent 1px)', backgroundSize: '14px 14px', position: 'relative' }}>
           <CircuitSvg />
-          <div style={{ position: 'absolute', left: 12, bottom: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', color: '#64748b' }}>X: 220, Y: 140</div>
+          <div className="surface-box" style={{ position: 'absolute', left: 12, bottom: 12, padding: '4px 8px' }}>X: 220, Y: 140</div>
         </div>
       </main>
 
@@ -110,7 +110,7 @@ FIM`}</pre>
             <span><b style={{ color: '#d97706' }}>1</b> Aviso</span>
             <span><b style={{ color: '#1d4ed8' }}>0</b> Informações</span>
           </div>
-          <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 8, padding: 10 }}>R1: Valor de resistência muito baixo (0,5 Ω). Verifique aquecimento.</div>
+          <div className="result-panel result-panel--warning" style={{ padding: 10 }}>R1: Valor de resistência muito baixo (0,5 Ω). Verifique aquecimento.</div>
           <div className="checklist" style={{ marginTop: 12 }}>
             {['Topologia do circuito', 'Conexões elétricas', 'Referência de terra', 'Unidades e coerência'].map(x => <label key={x}><input type="checkbox" defaultChecked />{x} <b style={{ marginLeft: 'auto', color: '#16a34a' }}>OK</b></label>)}
           </div>
@@ -137,7 +137,7 @@ FIM`}</pre>
           <Info k="Componentes" v="9" />
           <Info k="Conexões" v="27 nós" />
           <Info k="Erros" v="0" />
-          <div style={{ marginTop: 16, padding: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#166534', fontWeight: 800 }}>Projeto válido</div>
+          <div className="result-panel result-panel--success" style={{ marginTop: 16, padding: 12, fontWeight: 800 }}>Projeto válido</div>
         </div>
       </div>
     </div>

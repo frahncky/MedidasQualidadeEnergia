@@ -410,3 +410,108 @@ html, body, #root {
   .statusbar__item:nth-of-type(2),
   .statusbar__item:nth-of-type(3) { display: none; }
 }
+
+/* ── Close button inside result panels ── */
+.btn-close-panel {
+  position: absolute; top: 8px; right: 10px;
+  background: none; border: none; cursor: pointer;
+  color: var(--c-text-muted); font-size: 16px; line-height: 1;
+  transition: color var(--transition);
+}
+.btn-close-panel:hover { color: var(--c-danger); }
+
+/* ── Global dark mode overrides for any un-classed input/select ── */
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background: var(--c-input-bg) !important;
+  color: var(--c-text) !important;
+  border-color: var(--c-border) !important;
+}
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder { color: var(--c-text-muted) !important; }
+
+/* ── Loading overlay ── */
+.loading-overlay {
+  position: fixed; inset: 0; z-index: 999;
+  background: rgba(255,255,255,.55);
+  display: flex; align-items: center; justify-content: center;
+}
+[data-theme="dark"] .loading-overlay { background: rgba(0,0,0,.6); }
+.loading-box {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  padding: 18px 30px; box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  font-weight: 700; color: #1d4ed8;
+}
+[data-theme="dark"] .loading-box {
+  background: var(--c-surface); border-color: var(--c-border);
+  color: var(--c-primary); box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+
+/* ── Semantic result panels (colored feedback boxes) ── */
+.result-panel {
+  border-radius: 8px; padding: 14px 18px; position: relative;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.result-panel--success  { background:#f0fdf4; border:1px solid #86efac; color:#166534; }
+.result-panel--info     { background:#eff6ff; border:1px solid #93c5fd; color:#1e3a8a; }
+.result-panel--warning  { background:#fffbeb; border:1px solid #fde68a; color:#78350f; }
+.result-panel--purple   { background:#faf5ff; border:1px solid #d8b4fe; color:#581c87; }
+[data-theme="dark"] .result-panel--success  { background:#052e16; border-color:#166534; color:#86efac; }
+[data-theme="dark"] .result-panel--info     { background:#172554; border-color:#1d4ed8; color:#93c5fd; }
+[data-theme="dark"] .result-panel--warning  { background:#451a03; border-color:#d97706; color:#fde68a; }
+[data-theme="dark"] .result-panel--purple   { background:#2e1065; border-color:#7c3aed; color:#d8b4fe; }
+
+/* ── Inner cards inside result panels ── */
+.result-card {
+  background:#fff; border-radius:6px; padding:10px 14px;
+  transition: background var(--transition), border-color var(--transition);
+}
+[data-theme="dark"] .result-card { background:var(--c-surface-2); }
+.result-card--success { border:1px solid #bbf7d0; }
+.result-card--info    { border:1px solid #bfdbfe; }
+.result-card--purple  { border:1px solid #e9d5ff; }
+[data-theme="dark"] .result-card--success { border-color:#166534; }
+[data-theme="dark"] .result-card--info    { border-color:#1d4ed8; }
+[data-theme="dark"] .result-card--purple  { border-color:#7c3aed; }
+
+/* ── Surface muted box (coord displays, legend boxes, info notes) ── */
+.surface-box {
+  background:var(--c-surface-2); border:1px solid var(--c-border); border-radius:6px;
+  color:var(--c-text-muted);
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+/* ── Info note (blue inline info box) ── */
+.info-note {
+  padding:10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;
+  font-size:11px; color:#1e40af;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+[data-theme="dark"] .info-note { background:#172554; border-color:#1d4ed8; color:#93c5fd; }
+
+/* ── Report preview page (simulates a paper document) ── */
+.report-preview-page {
+  width:690px; min-height:860px; margin:0 auto; padding:32px;
+  background:#fff; color:#111827;
+  box-shadow:0 6px 20px rgba(15,23,42,.18);
+  transition: background var(--transition), box-shadow var(--transition), border-color var(--transition);
+}
+[data-theme="dark"] .report-preview-page {
+  background:#f1f5f9; color:#111827;
+  box-shadow:0 6px 20px rgba(0,0,0,.6);
+  border:2px solid var(--c-border);
+}
+
+/* ── Table row highlight ── */
+.tbl-row-highlight td { background:#f3e8ff !important; }
+[data-theme="dark"] .tbl-row-highlight td { background:#2e1065 !important; }
+
+/* ── Metrologia step circle ── */
+.step-circle {
+  width:30px; height:30px; border-radius:50%;
+  background:#dbeafe; display:grid; place-items:center;
+  color:#1d4ed8; font-weight:800; flex-shrink:0;
+  transition: background var(--transition), color var(--transition);
+}
+[data-theme="dark"] .step-circle { background:#172554; color:#93c5fd; }

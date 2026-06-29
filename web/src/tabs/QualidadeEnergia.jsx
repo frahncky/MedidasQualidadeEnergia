@@ -80,8 +80,8 @@ export default function QualidadeEnergia({ onNavigate }) {
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 1100, overflow: 'visible', position: 'relative' }}>
 
           {loading && (
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,.6)', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 24px', fontWeight: 700, color: '#1d4ed8' }}>↻ Atualizando…</div>
+            <div className="loading-overlay" style={{ position: 'absolute' }}>
+              <div className="loading-box">↻ Atualizando…</div>
             </div>
           )}
 

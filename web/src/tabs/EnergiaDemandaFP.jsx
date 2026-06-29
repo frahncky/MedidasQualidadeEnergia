@@ -100,19 +100,19 @@ export default function EnergiaDemandaFP({ onNavigate }) {
 
       {/* Economia Result Panel */}
       {showEconomy && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '14px 18px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, position: 'relative' }}>
-          <button onClick={() => setShowEconomy(false)} style={{ position: 'absolute', top: 8, right: 10, background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 16 }}>✕</button>
+        <div className="result-panel result-panel--success" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+          <button onClick={() => setShowEconomy(false)} className="btn-close-panel">✕</button>
           <div>
-            <div style={{ fontWeight: 800, color: '#166534', fontSize: 13 }}>Análise de Economia — {instalacao}</div>
-            <div style={{ fontSize: 11, color: '#16a34a', marginTop: 4 }}>FP atual: <b>{fpAtual}</b> → FP alvo: <b>{fpAlvo}</b></div>
+            <div style={{ fontWeight: 800, fontSize: 13 }}>Análise de Economia — {instalacao}</div>
+            <div style={{ fontSize: 11, marginTop: 4 }}>FP atual: <b>{fpAtual}</b> → FP alvo: <b>{fpAlvo}</b></div>
           </div>
           {[
             ['Economia Multa ANEEL', `R$ ${economiaMulta.toLocaleString('pt-BR')}/mês`, '#16a34a'],
-            ['Banco de Capacitores', `${Qc} kVar`, '#1d4ed8'],
-            ['Redução de Perdas', `R$ ${(Qc * 1.8).toFixed(0)}/mês`, '#059669'],
+            ['Banco de Capacitores', `${Qc} kVar`, 'var(--c-primary)'],
+            ['Redução de Perdas', `R$ ${(Qc * 1.8).toFixed(0)}/mês`, 'var(--c-success)'],
           ].map(([label, val, color]) => (
-            <div key={label} style={{ background: '#fff', borderRadius: 6, padding: '10px 14px', border: '1px solid #bbf7d0' }}>
-              <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
+            <div key={label} className="result-card result-card--success">
+              <div style={{ fontSize: 10, color: 'var(--c-text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
               <div style={{ fontSize: 18, fontWeight: 800, color, marginTop: 4 }}>{val}</div>
             </div>
           ))}
@@ -121,23 +121,23 @@ export default function EnergiaDemandaFP({ onNavigate }) {
 
       {/* FP Simulation Panel */}
       {showSim && (
-        <div style={{ background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: 8, padding: '14px 18px', position: 'relative' }}>
-          <button onClick={() => setShowSim(false)} style={{ position: 'absolute', top: 8, right: 10, background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 16 }}>✕</button>
-          <div style={{ fontWeight: 800, color: '#1e3a8a', marginBottom: 12 }}>Simulação de Correção de Fator de Potência</div>
+        <div className="result-panel result-panel--info">
+          <button onClick={() => setShowSim(false)} className="btn-close-panel">✕</button>
+          <div style={{ fontWeight: 800, marginBottom: 12 }}>Simulação de Correção de Fator de Potência</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', marginBottom: 4 }}>FP Alvo</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 4 }}>FP Alvo</div>
               <input className="form-input" value={fpAlvo} onChange={e => setFpAlvo(e.target.value)} placeholder="0,98" style={{ width: '100%' }} />
             </div>
-            <div className="panel__body" style={{ background: '#fff', borderRadius: 6, padding: '10px 14px', border: '1px solid #bfdbfe' }}>
-              <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Banco de Capacitores Necessário</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#1d4ed8', marginTop: 4 }}>{Qc} kVar</div>
-              <div style={{ fontSize: 11, color: '#64748b' }}>Potência ativa: {P_kW} kW</div>
+            <div className="result-card result-card--info" style={{ padding: '10px 14px' }}>
+              <div style={{ fontSize: 10, color: 'var(--c-text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Banco de Capacitores Necessário</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--c-primary)', marginTop: 4 }}>{Qc} kVar</div>
+              <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>Potência ativa: {P_kW} kW</div>
             </div>
-            <div className="panel__body" style={{ background: '#fff', borderRadius: 6, padding: '10px 14px', border: '1px solid #bfdbfe' }}>
-              <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Custo Estimado do Banco</div>
+            <div className="result-card result-card--info" style={{ padding: '10px 14px' }}>
+              <div style={{ fontSize: 10, color: 'var(--c-text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Custo Estimado do Banco</div>
               <div style={{ fontSize: 20, fontWeight: 800, color: '#9333ea', marginTop: 4 }}>R$ {economiaCapacitor.toLocaleString('pt-BR')}</div>
-              <div style={{ fontSize: 11, color: '#16a34a' }}>Payback: ~{Math.ceil(economiaCapacitor / economiaMulta)} meses</div>
+              <div style={{ fontSize: 11, color: 'var(--c-success)' }}>Payback: ~{Math.ceil(economiaCapacitor / economiaMulta)} meses</div>
             </div>
           </div>
         </div>
@@ -145,9 +145,9 @@ export default function EnergiaDemandaFP({ onNavigate }) {
 
       {/* Scenarios comparison Panel */}
       {showCompare && (
-        <div style={{ background: '#faf5ff', border: '1px solid #d8b4fe', borderRadius: 8, padding: '14px 18px', position: 'relative' }}>
-          <button onClick={() => setShowCompare(false)} style={{ position: 'absolute', top: 8, right: 10, background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 16 }}>✕</button>
-          <div style={{ fontWeight: 800, color: '#581c87', marginBottom: 12 }}>Comparação de Cenários de Eficiência</div>
+        <div className="result-panel result-panel--purple">
+          <button onClick={() => setShowCompare(false)} className="btn-close-panel">✕</button>
+          <div style={{ fontWeight: 800, marginBottom: 12 }}>Comparação de Cenários de Eficiência</div>
           <table className="tbl">
             <thead><tr><th>Cenário</th><th>FP</th><th>Custo / mês</th><th>Banco kVar</th><th>Economia / mês</th><th>Payback</th></tr></thead>
             <tbody>
@@ -157,8 +157,8 @@ export default function EnergiaDemandaFP({ onNavigate }) {
                 ['Correção padrão', '0,98', 'R$ 79.875', `${Qc} kVar`, 'R$ 6.867', '~10 meses'],
                 ['Correção total', '0,99', 'R$ 78.100', `${calcCapacitorBank(P_kW, 0.92, 0.99)} kVar`, 'R$ 8.642', '~12 meses'],
               ].map((r, i) => (
-                <tr key={i} style={{ background: i === 2 ? '#f3e8ff' : undefined }}>
-                  {r.map((c, j) => <td key={j} style={j === 0 ? { fontWeight: 700 } : j === 4 ? { color: '#16a34a', fontWeight: 700 } : {}}>{c}</td>)}
+                <tr key={i} className={i === 2 ? 'tbl-row-highlight' : undefined}>
+                  {r.map((c, j) => <td key={j} style={j === 0 ? { fontWeight: 700 } : j === 4 ? { color: 'var(--c-success)', fontWeight: 700 } : {}}>{c}</td>)}
                 </tr>
               ))}
             </tbody>

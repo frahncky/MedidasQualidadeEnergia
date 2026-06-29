@@ -124,10 +124,8 @@ export default function Dashboard({ onNavigate }) {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 1080, overflow: 'visible', position: 'relative' }}>
 
       {loading && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(255,255,255,.55)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '18px 30px', boxShadow: '0 8px 24px rgba(0,0,0,.12)', fontWeight: 700, color: '#1d4ed8' }}>
-            ↻ Atualizando dados…
-          </div>
+        <div className="loading-overlay">
+          <div className="loading-box">↻ Atualizando dados…</div>
         </div>
       )}
 
@@ -285,7 +283,7 @@ export default function Dashboard({ onNavigate }) {
               {instInfo.map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 5, borderBottom: '1px solid #f1f5f9', paddingBottom: 4 }}>
                   <span style={{ color: '#64748b', fontWeight: 600 }}>{k}</span>
-                  <span style={{ textAlign: 'right', color: '#1e293b', maxWidth: '55%' }}>{v}</span>
+                  <span style={{ textAlign: 'right', color: 'var(--c-text)', maxWidth: '55%' }}>{v}</span>
                 </div>
               ))}
             </div>

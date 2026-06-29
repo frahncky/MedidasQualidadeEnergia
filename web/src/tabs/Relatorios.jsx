@@ -166,7 +166,7 @@ export default function Relatorios({ onNavigate }) {
                 <button className="btn btn-ghost btn-sm" onClick={() => toast(`Configurando: ${item}`, 'info')}>Configurar</button>
               </div>
             ))}
-            <div style={{ marginTop: 8, padding: 10, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, fontSize: 11, color: '#1e40af' }}>
+            <div className="info-note" style={{ marginTop: 8, fontSize: 11 }}>
               {inclusions.size} de {INCLUSIONS.length} inclusões ativas
             </div>
           </div>
@@ -274,7 +274,7 @@ export default function Relatorios({ onNavigate }) {
 function ReportPage({ page, sections, data, totalPages }) {
   const merged = { ...Object.fromEntries(REPORT_DATA_FIELDS), ...data }
   return (
-    <div style={{ width: 690, minHeight: 860, background: '#fff', margin: '0 auto', padding: 32, boxShadow: '0 6px 20px rgba(15,23,42,.18)', color: '#111827' }}>
+    <div className="report-preview-page">
       <div style={{ display: 'flex', alignItems: 'center', borderBottom: '2px solid #cbd5e1', paddingBottom: 18 }}>
         <div style={{ width: 70, height: 70, borderRadius: 14, background: '#dbeafe', display: 'grid', placeItems: 'center', color: '#1d4ed8', fontWeight: 900 }}>LOGO</div>
         <div style={{ flex: 1, textAlign: 'center' }}>
