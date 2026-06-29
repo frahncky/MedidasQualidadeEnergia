@@ -1108,6 +1108,11 @@ body, button, input, select, textarea,
   overflow: visible;
 }
 
+/* When Simulacao is embedded under the inner-nav, subtract its 44px */
+.circuitos-page .sim-page {
+  min-height: clamp(820px, calc(100vh - 280px), 940px);
+}
+
 .circuit-editor-grid {
   display: grid;
   grid-template-columns: 240px minmax(620px, 1fr) minmax(300px, 360px);
