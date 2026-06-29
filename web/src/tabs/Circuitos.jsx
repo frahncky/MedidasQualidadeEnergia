@@ -20,6 +20,21 @@ function errClr(pct) {
   return a < 1 ? '#16a34a' : a < 5 ? '#d97706' : '#dc2626'
 }
 
+/* ─── complex number helpers ─────────────────────────────────────────────── */
+// Represent complex numbers as [real, imag]
+const cx = {
+  add:   (a,b) => [a[0]+b[0], a[1]+b[1]],
+  sub:   (a,b) => [a[0]-b[0], a[1]-b[1]],
+  mul:   (a,b) => [a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]],
+  div:   (a,b) => { const d = b[0]**2+b[1]**2 || 1e-30; return [(a[0]*b[0]+a[1]*b[1])/d, (a[1]*b[0]-a[0]*b[1])/d] },
+  neg:   (a)   => [-a[0], -a[1]],
+  mag:   (a)   => Math.sqrt(a[0]**2+a[1]**2),
+  arg:   (a)   => Math.atan2(a[1],a[0]),
+  polar: (r,θ) => [r*Math.cos(θ), r*Math.sin(θ)],
+  P:     (V,I) => V[0]*I[0]+V[1]*I[1],    // Re(V·I*) = active power
+  Q:     (V,I) => V[1]*I[0]-V[0]*I[1],    // Im(V·I*) = reactive power
+}
+
 /* ─── CC constants & calc ────────────────────────────────────────────────── */
 
 const CC_PRESETS = [
@@ -110,7 +125,209 @@ function calcMono(p) {
   return { Vs, f, R: Re, XL, XC, X, Z, I, VR, VL: VLv, VC: VCv, FP, phi, P, Q, S, nat, hasR, hasL, hasC }
 }
 
-/* ─── CA Trifásico constants & calc ──────────────────────────────────────── */
+// Parallel: Vs is reference; branch currents IR, IL, IC; total I_total at angle phi
+function calcMonoPara(p) {
+  const Vs = parseNum(p.Vs) || 127
+  const f  = parseNum(p.f)  || 60
+  const R  = parseNum(p.R)  || 0
+  const L  = parseNum(p.L)  || 0
+  const C  = parseNum(p.C)  || 0
+  const t  = p.loadType
+
+  const hasR = ['R','RL','RC','RLC','M'].includes(t)
+  const hasL = ['L','RL','RLC','M'].includes(t)
+  const hasC = ['C','RC','RLC'].includes(t)
+
+  const XL = hasL && L > 0 ? 2*Math.PI*f*L : 0
+  const XC = hasC && C > 0 ? 1/(2*Math.PI*f*C) : 0
+
+  const G  = hasR && R > 0 ? 1/R  : 0   // conductance
+  const BL = XL > 0 ? 1/XL : 0          // inductive susceptance (lags)
+  const BC = XC > 0 ? 1/XC : 0          // capacitive susceptance (leads)
+  const B  = BC - BL                     // net susceptance (+ = cap, - = ind)
+
+  const Y   = Math.sqrt(G**2 + B**2) || 1e-10
+  const Z   = 1/Y
+  const I_R = Vs * G
+  const I_L = Vs * BL
+  const I_C = Vs * BC
+  const I   = Vs * Y
+  const FP  = G / Y
+  const phi = Math.atan2(BL - BC, G)    // lag positive: ind > 0, cap < 0
+
+  const P   = Vs**2 * G
+  const Q_L = Vs**2 * BL
+  const Q_C = Vs**2 * BC
+  const Q   = Q_L - Q_C                 // net reactive (+ = inductive)
+  const S   = Vs * I
+  const nat = phi > 0.001 ? 'Indutivo' : phi < -0.001 ? 'Capacitivo' : 'Resistivo puro'
+
+  return { Vs, f, G, BL, BC, B, Y, Z, I_R, I_L, I_C, I, FP, phi, P, Q_L, Q_C, Q, S, nat, hasR, hasL, hasC, XL, XC }
+}
+
+/* ─── CA Trifásico — load analysis system ───────────────────────────────── */
+
+const TRI_LOAD_TYPES = [
+  { id:'R',   label:'Resistiva (R)',          color:'#1d4ed8', fields:['R'] },
+  { id:'RL',  label:'Indutiva (RL)',           color:'#9333ea', fields:['R','L'] },
+  { id:'RC',  label:'Capacitiva (RC)',         color:'#0284c7', fields:['R','C'] },
+  { id:'RLC', label:'RLC',                    color:'#d97706', fields:['R','L','C'] },
+  { id:'M3F', label:'Motor Trifásico',         color:'#16a34a', fields:['Pn','eta','FPm'] },
+  { id:'M1F', label:'Motor Monofásico (fase A)', color:'#64748b', fields:['Pn','eta','FPm'] },
+  { id:'CAP', label:'Banco de Capacitores',   color:'#dc2626', fields:['Cuf'] },
+]
+
+const DEFAULT_TRI_LOADS = {
+  ligacao:'Y', balanco:'eq', loadType:'RL',
+  R:'10', L:'0,05', C:'0,001', Cuf:'50',
+  Pn:'37', eta:'92', FPm:'0,87',
+  // per-phase for unbalanced
+  A_lt:'RL', A_R:'10', A_L:'0,05', A_C:'0,001',
+  B_lt:'R',  B_R:'20', B_L:'0',    B_C:'0,001',
+  C_lt:'RC', C_R:'15', C_L:'0',    C_C:'0,002',
+  VL:'13800', freq:'60',
+}
+
+// Returns impedance [Re, Im] per-phase (Y-equivalent) for a given load spec
+function phaseZ(lt, vals, f, VL) {
+  const R  = parseNum(vals.R)  || 0
+  const L  = parseNum(vals.L)  || 0
+  const Cv = parseNum(vals.C)  || 0
+  const XL = 2*Math.PI*f*L
+  const XC = Cv > 0 ? 1/(2*Math.PI*f*Cv) : 0
+
+  if (lt === 'R')   return [R || 1, 0]
+  if (lt === 'RL')  return [R, XL]
+  if (lt === 'RC')  return [R, -XC]
+  if (lt === 'RLC') return [R, XL - XC]
+
+  if (lt === 'M3F' || lt === 'M1F') {
+    const Pn  = (parseNum(vals.Pn)  || 10) * 1000  // kW → W
+    const eta = (parseNum(vals.eta) || 90) / 100
+    const FPm = parseNum(vals.FPm) || 0.85
+    if (Pn <= 0 || VL <= 0) return [10, 2]
+    const P_el = Pn / eta
+    const S_m  = P_el / (FPm || 0.01)
+    const V_ph = VL / Math.sqrt(3)
+    const I_m  = S_m / (Math.sqrt(3) * VL)
+    const Zm   = V_ph / (I_m || 1e-10)
+    const phim = Math.acos(Math.min(FPm, 1))
+    return [Zm * FPm, Zm * Math.sin(phim)]
+  }
+
+  if (lt === 'CAP') {
+    const Cuf = (parseNum(vals.Cuf) || 10) * 1e-6  // μF → F
+    const XCap = Cuf > 0 ? 1/(2*Math.PI*f*Cuf) : 1e6
+    return [0, -XCap]
+  }
+
+  return [R || 1, XL - XC]
+}
+
+// Balanced Y or Δ load analysis
+function calcTriBal(p) {
+  const VL = parseNum(p.VL) || 13800
+  const f  = parseNum(p.freq) || 60
+  const lt = p.loadType
+  const lig = p.ligacao // 'Y' or 'D'
+  const vals = { R: p.R, L: p.L, C: p.C, Pn: p.Pn, eta: p.eta, FPm: p.FPm, Cuf: p.Cuf }
+
+  let Z_Y = phaseZ(lt, vals, f, VL)  // Y-equivalent per phase
+  if (lig === 'D') Z_Y = [Z_Y[0]/3, Z_Y[1]/3]  // Δ → Y conversion
+
+  const V_ph  = VL / Math.sqrt(3)
+  const Z_mag = cx.mag(Z_Y) || 1e-10
+  const phi   = cx.arg(Z_Y)          // angle: ind > 0
+  const I_ph  = V_ph / Z_mag         // phase current in Y equivalent
+  const I_line = lig === 'D' ? Math.sqrt(3) * I_ph : I_ph
+  const I_delta = lig === 'D' ? I_ph : null  // current through Δ branch
+
+  const FP  = Math.cos(phi)
+  const P1  = V_ph * I_ph * FP       // per phase
+  const Q1  = V_ph * I_ph * Math.abs(Math.sin(phi))
+  const P   = 3 * P1
+  const Q   = phi > 0 ? 3 * Q1 : -3 * Q1  // ind positive
+  const S   = Math.sqrt(P**2 + Q**2)
+  const nat = phi > 0.001 ? 'Indutivo' : phi < -0.001 ? 'Capacitivo' : 'Resistivo'
+
+  // Phasors for diagram (A=0°, B=-120°, C=-240°)
+  const phaseA = { V: cx.polar(V_ph, 0),           I: cx.polar(I_ph, -phi) }
+  const phaseB = { V: cx.polar(V_ph, -2*Math.PI/3), I: cx.polar(I_ph, -2*Math.PI/3 - phi) }
+  const phaseC = { V: cx.polar(V_ph,  2*Math.PI/3), I: cx.polar(I_ph,  2*Math.PI/3 - phi) }
+
+  return { VL, V_ph, f, Z_Y, Z_mag, phi, I_ph, I_line, I_delta, FP, P, Q, S, nat, P1, Q1, lig, phaseA, phaseB, phaseC }
+}
+
+// Unbalanced Y load (with neutral wire)
+function calcTriUnbalY(p) {
+  const VL = parseNum(p.VL) || 13800
+  const f  = parseNum(p.freq) || 60
+  const V_ph = VL / Math.sqrt(3)
+
+  const phases = ['A','B','C']
+  const angles = [0, -2*Math.PI/3, 2*Math.PI/3]
+
+  const results = phases.map((ph, i) => {
+    const lt   = p[ph+'_lt'] || 'RL'
+    const vals = { R: p[ph+'_R'], L: p[ph+'_L'], C: p[ph+'_C'], Pn: p[ph+'_Pn'], eta: p[ph+'_eta'], FPm: p[ph+'_FPm'], Cuf: p[ph+'_Cuf'] }
+    const Z    = phaseZ(lt, vals, f, VL)
+    const V    = cx.polar(V_ph, angles[i])
+    const I    = cx.div(V, Z)
+    const phi  = cx.arg(Z)
+    const P    = cx.P(V, I)
+    const Q    = cx.Q(V, I)
+    return { ph, V, I, Z, phi, P, Q, S: cx.mag(V)*cx.mag(I), I_mag: cx.mag(I), FP: Math.cos(phi) }
+  })
+
+  const IA = results[0].I, IB = results[1].I, IC = results[2].I
+  const IN = cx.neg(cx.add(cx.add(IA,IB),IC))
+  const P_tot = results.reduce((s,r)=>s+r.P, 0)
+  const Q_tot = results.reduce((s,r)=>s+r.Q, 0)
+  const S_tot = Math.sqrt(P_tot**2 + Q_tot**2)
+
+  return { results, IN, P_tot, Q_tot, S_tot, FP_tot: P_tot/S_tot, VL, V_ph }
+}
+
+// Unbalanced Δ load
+function calcTriUnbalD(p) {
+  const VL = parseNum(p.VL) || 13800
+  const f  = parseNum(p.freq) || 60
+
+  // Δ branch voltages (line-to-line): AB, BC, CA
+  const V_AB = cx.polar(VL, Math.PI/6)       // standard ref
+  const V_BC = cx.polar(VL, Math.PI/6 - 2*Math.PI/3)
+  const V_CA = cx.polar(VL, Math.PI/6 + 2*Math.PI/3)
+
+  function branchI(ph, Vab) {
+    const lt   = p[ph+'_lt'] || 'RL'
+    const vals = { R: p[ph+'_R'], L: p[ph+'_L'], C: p[ph+'_C'], Cuf: p[ph+'_Cuf'] }
+    const Z    = phaseZ(lt, vals, f, VL)
+    const I    = cx.div(Vab, Z)
+    const P    = cx.P(Vab, I)
+    const Q    = cx.Q(Vab, I)
+    return { Z, I, I_mag: cx.mag(I), P, Q, S: cx.mag(Vab)*cx.mag(I), phi: cx.arg(Z), FP: Math.cos(cx.arg(Z)) }
+  }
+
+  const brAB = branchI('A', V_AB)
+  const brBC = branchI('B', V_BC)
+  const brCA = branchI('C', V_CA)
+
+  // Line currents: IA = IAB - ICA, IB = IBC - IAB, IC = ICA - IBC
+  const IA = cx.sub(brAB.I, brCA.I)
+  const IB = cx.sub(brBC.I, brAB.I)
+  const IC = cx.sub(brCA.I, brBC.I)
+
+  const P_tot = brAB.P + brBC.P + brCA.P
+  const Q_tot = brAB.Q + brBC.Q + brCA.Q
+  const S_tot = Math.sqrt(P_tot**2 + Q_tot**2)
+
+  return {
+    brAB, brBC, brCA, IA, IB, IC, P_tot, Q_tot, S_tot, FP_tot: P_tot/S_tot,
+    VL, phaseA:{I:IA}, phaseB:{I:IB}, phaseC:{I:IC}
+  }
+}
+
+/* ─── CA Trifásico — system-level constants & calc ───────────────────────── */
 
 const TRI_DEFAULT = {
   v1_tensao: '13,8', v1_freq: '60', v1_ligacao: 'Y',
@@ -454,52 +671,77 @@ function CCDual({ c, p }) {
 /* ─── SubCAMono ──────────────────────────────────────────────────────────── */
 
 function SubCAMono() {
-  const [p, setP] = useState(DEFAULT_MONO)
-  const c = useMemo(() => calcMono(p), [p])
-  const sp = (k, v) => setP(prev => ({ ...prev, [k]: v }))
-  const lt = LOAD_TYPES.find(l => l.id === p.loadType)
+  const [p, setP]     = useState(DEFAULT_MONO)
+  const [cfg, setCfg] = useState('serie')   // 'serie' | 'paralelo'
+  const sp  = (k, v)  => setP(prev => ({ ...prev, [k]: v }))
+  const lt  = LOAD_TYPES.find(l => l.id === p.loadType)
+
+  const cs = useMemo(() => calcMono(p),     [p])  // série
+  const cp = useMemo(() => calcMonoPara(p), [p])  // paralelo
+  const c  = cfg === 'serie' ? cs : cp
+
+  const isSerie = cfg === 'serie'
 
   return (
     <div style={{ display:'grid', gridTemplateColumns:'210px 1fr 240px', gap:12, padding:12, flex:'1 1 auto', minHeight:0, overflow:'auto' }}>
 
-      {/* Left: type + params */}
+      {/* Left: config toggle + type + params */}
       <div className="panel" style={{ display:'flex', flexDirection:'column', minHeight:0 }}>
-        <div className="panel__head">Tipo de Carga</div>
+        <div className="panel__head">Configuração</div>
         <div style={{ flex:1, overflow:'auto', padding:'10px 12px' }}>
-          {LOAD_TYPES.map(t => (
-            <button key={t.id}
-              className="btn btn-sm"
-              style={{ width:'100%', textAlign:'left', marginBottom:4,
-                background: p.loadType===t.id ? t.color : 'transparent',
-                color: p.loadType===t.id ? '#fff' : 'var(--c-text)',
-                border: `1px solid ${t.color}`,
-              }}
-              onClick={() => sp('loadType', t.id)}>{t.label}</button>
-          ))}
 
-          <div style={{ marginTop:12 }}>
-            <Section title="Fonte CA">
-              <PField label="Tensão Vs"  unit="V"  value={p.Vs} onChange={v => sp('Vs',v)} />
-              <PField label="Frequência" unit="Hz" value={p.f}  onChange={v => sp('f', v)} />
-            </Section>
-            <Section title="Carga">
-              {lt?.fields.includes('R') && <PField label="Resistência R" unit="Ω" value={p.R} onChange={v => sp('R',v)} />}
-              {lt?.fields.includes('L') && <PField label="Indutância L"  unit="H" value={p.L} onChange={v => sp('L',v)} />}
-              {lt?.fields.includes('C') && <PField label="Capacitância C" unit="F" value={p.C} onChange={v => sp('C',v)} />}
-            </Section>
+          {/* Série / Paralelo toggle */}
+          <div style={{ display:'flex', gap:6, marginBottom:14 }}>
+            {['serie','paralelo'].map(m => (
+              <button key={m} className={`btn btn-sm${cfg===m?'':' btn-ghost'}`}
+                style={{ flex:1, background: cfg===m?'#1d4ed8':undefined, color: cfg===m?'#fff':undefined }}
+                onClick={() => setCfg(m)}>
+                {m === 'serie' ? '— Série' : '∥ Paralelo'}
+              </button>
+            ))}
           </div>
+
+          <div style={{ fontSize:11, color:'var(--c-text-muted)', marginBottom:10, lineHeight:1.5 }}>
+            {isSerie
+              ? 'Componentes em série: mesma corrente, tensões somadas vetorialmente.'
+              : 'Componentes em paralelo: mesma tensão, correntes somadas vetorialmente.'}
+          </div>
+
+          <Section title="Tipo de Carga">
+            {LOAD_TYPES.map(t => (
+              <button key={t.id} className="btn btn-sm"
+                style={{ width:'100%', textAlign:'left', marginBottom:4,
+                  background: p.loadType===t.id ? t.color : 'transparent',
+                  color: p.loadType===t.id ? '#fff' : 'var(--c-text)',
+                  border: `1px solid ${t.color}`,
+                }}
+                onClick={() => sp('loadType', t.id)}>{t.label}</button>
+            ))}
+          </Section>
+
+          <Section title="Fonte CA">
+            <PField label="Tensão Vs"  unit="V"  value={p.Vs} onChange={v => sp('Vs',v)} />
+            <PField label="Frequência" unit="Hz" value={p.f}  onChange={v => sp('f', v)} />
+          </Section>
+          <Section title="Carga">
+            {lt?.fields.includes('R') && <PField label="Resistência R" unit="Ω" value={p.R} onChange={v => sp('R',v)} />}
+            {lt?.fields.includes('L') && <PField label="Indutância L"  unit="H" value={p.L} onChange={v => sp('L',v)} />}
+            {lt?.fields.includes('C') && <PField label="Capacitância C" unit="F" value={p.C} onChange={v => sp('C',v)} />}
+          </Section>
         </div>
       </div>
 
       {/* Center: circuit + phasor */}
       <div style={{ display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
         <div className="panel" style={{ flexShrink:0 }}>
-          <div className="panel__head">Circuito CA Monofásico — {lt?.label ?? ''}</div>
-          <MonoCircuit c={c} lt={lt} />
+          <div className="panel__head">Circuito {isSerie ? 'Série' : 'Paralelo'} — {lt?.label ?? ''}</div>
+          {isSerie ? <MonoCircuit c={cs} lt={lt} /> : <MonoCircuitPara c={cp} lt={lt} />}
         </div>
         <div className="panel" style={{ flex:1, minHeight:0 }}>
-          <div className="panel__head">Diagrama Fasorial — referência: corrente I</div>
-          <MonoPhasor c={c} />
+          <div className="panel__head">
+            Diagrama Fasorial — ref.: {isSerie ? 'corrente I' : 'tensão Vs'}
+          </div>
+          {isSerie ? <MonoPhasor c={cs} /> : <MonoPhasorPara c={cp} />}
         </div>
       </div>
 
@@ -508,30 +750,46 @@ function SubCAMono() {
         <div className="panel__head">Resultados</div>
         <div style={{ flex:1, overflow:'auto', padding:'10px 12px' }}>
           <Section title={`Regime: ${c.nat}`}>
-            <Result label="Impedância Z"   value={`${fmt(c.Z,3)} Ω`} />
-            {c.hasL && <Result label="Reatância XL"  value={`${fmt(c.XL,3)} Ω`} />}
-            {c.hasC && <Result label="Reatância XC"  value={`${fmt(c.XC,3)} Ω`} />}
-            <Result label="Reatância X"    value={`${fmt(c.X,3)} Ω`} />
+            {isSerie ? <>
+              <Result label="Impedância |Z|"  value={`${fmt(c.Z,3)} Ω`} />
+              {c.hasL && <Result label="Reatância XL" value={`${fmt(c.XL,3)} Ω`} />}
+              {c.hasC && <Result label="Reatância XC" value={`${fmt(c.XC,3)} Ω`} />}
+              <Result label="Reatância X"    value={`${fmt(c.X,3)} Ω`} />
+            </> : <>
+              <Result label="Admitância |Y|" value={`${fmt(c.Y,5)} S`} />
+              <Result label="Impedância |Z|" value={`${fmt(c.Z,3)} Ω`} />
+              {c.hasR && <Result label="Condutância G" value={`${fmt(c.G,5)} S`} />}
+              {c.hasL && <Result label="Suscept. BL"   value={`${fmt(c.BL,5)} S`} />}
+              {c.hasC && <Result label="Suscept. BC"   value={`${fmt(c.BC,5)} S`} />}
+            </>}
           </Section>
-          <Section title="Correntes e Tensões">
-            <Result label="Corrente I"     value={`${fmt(c.I,4)} A`} />
-            {c.hasR && <Result label="Queda VR (R)"  value={`${fmt(c.VR,2)} V`} />}
-            {c.hasL && <Result label="Queda VL (L)"  value={`${fmt(c.VL,2)} V`} />}
-            {c.hasC && <Result label="Queda VC (C)"  value={`${fmt(c.VC,2)} V`} />}
+          <Section title={isSerie ? 'Corrente e Quedas de Tensão' : 'Tensão e Correntes de Ramo'}>
+            {isSerie ? <>
+              <Result label="Corrente I"    value={`${fmt(c.I,4)} A`} />
+              {c.hasR && <Result label="VR (R)"  value={`${fmt(c.VR,2)} V`} />}
+              {c.hasL && <Result label="VL (L)"  value={`${fmt(c.VL,2)} V`} />}
+              {c.hasC && <Result label="VC (C)"  value={`${fmt(c.VC,2)} V`} />}
+            </> : <>
+              <Result label="Tensão Vs"     value={`${fmt(c.Vs,2)} V`} />
+              <Result label="I total"        value={`${fmt(c.I,4)} A`} />
+              {c.hasR && <Result label="IR (R)" value={`${fmt(c.I_R,4)} A`} />}
+              {c.hasL && <Result label="IL (L)" value={`${fmt(c.I_L,4)} A`} />}
+              {c.hasC && <Result label="IC (C)" value={`${fmt(c.I_C,4)} A`} />}
+            </>}
           </Section>
           <Section title="Potências">
             <Result label="Pot. ativa P"    value={`${fmt(c.P,1)} W`} />
-            <Result label="Pot. reativa Q"  value={`${fmt(c.Q,1)} var`} />
+            <Result label="Pot. reativa Q"  value={`${fmt(Math.abs(c.Q ?? c.Q_L-c.Q_C),1)} var (${c.nat})`} />
             <Result label="Pot. aparente S" value={`${fmt(c.S,1)} VA`} />
             <Result label="Fat. potência FP" value={fmt(c.FP,4)} highlight={c.FP < 0.92 && c.S > 1} />
             <Result label="Ângulo φ"        value={`${fmt(c.phi*180/Math.PI,2)}°`} />
           </Section>
           <Section title="O que cada instrumento lê">
             <div style={{ fontSize:11, lineHeight:1.9, color:'var(--c-text-muted)' }}>
-              <b>Amperímetro:</b> {fmt(c.I,4)} A (RMS)<br/>
-              <b>Voltímetro:</b>  {fmt(c.Vs,2)} V (RMS)<br/>
+              <b>Amperímetro:</b> {fmt(c.I,4)} A (total)<br/>
+              <b>Voltímetro:</b>  {fmt(c.Vs,2)} V<br/>
               <b>Wattímetro:</b>  {fmt(c.P,1)} W<br/>
-              <b>Varmetro:</b>    {fmt(c.Q,1)} var<br/>
+              <b>Varmetro:</b>    {fmt(Math.abs(c.Q ?? c.Q_L-c.Q_C),1)} var<br/>
               <b>Fasímetro:</b>   φ = {fmt(c.phi*180/Math.PI,2)}° ({c.nat})<br/>
               <b>Cos φ metro:</b> FP = {fmt(c.FP,4)}
             </div>
@@ -678,171 +936,543 @@ function MonoPhasor({ c }) {
   )
 }
 
+/* ─── MonoCircuitPara SVG ────────────────────────────────────────────────── */
+
+function MonoCircuitPara({ c, lt }) {
+  const clr = lt?.color ?? '#334155'
+  const { hasR, hasL, hasC } = c
+  // Top rail y=20, bottom rail y=100, parallel branches between them
+  return (
+    <svg viewBox="0 0 480 115" style={{ width:'100%', height:110 }}>
+      {/* source */}
+      <circle cx="38" cy="60" r="22" fill="var(--c-surface)" stroke="#334155" strokeWidth="2"/>
+      <text x="38" y="56" textAnchor="middle" fontSize="14">~</text>
+      <text x="38" y="70" textAnchor="middle" fontSize="9">{fmt(c.Vs,0)}V</text>
+      {/* rails */}
+      <line x1="38" y1="38" x2="38"  y2="20"  stroke="#334155" strokeWidth="2"/>
+      <line x1="38" y1="20" x2="430" y2="20"  stroke="#334155" strokeWidth="2"/>
+      <line x1="430" y1="20" x2="430" y2="100" stroke="#334155" strokeWidth="2"/>
+      <line x1="38" y1="82" x2="38"  y2="100" stroke="#334155" strokeWidth="2"/>
+      <line x1="38" y1="100" x2="430" y2="100" stroke="#334155" strokeWidth="2"/>
+      {/* ammeter (measures total I) */}
+      <circle cx="76" cy="20" r="12" fill="var(--c-surface)" stroke="#1d4ed8" strokeWidth="2"/>
+      <text x="76" y="24" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1d4ed8">A</text>
+      <text x="76" y="42" textAnchor="middle" fontSize="8" fill="#1d4ed8">{fmt(c.I,3)} A</text>
+      {/* R branch at x=150 */}
+      {hasR && <>
+        <line x1="150" y1="20" x2="150" y2="34" stroke="#334155" strokeWidth="2"/>
+        <rect x="137" y="34" width="26" height="32" fill="var(--c-surface)" stroke={clr} strokeWidth="2" rx="2"/>
+        <text x="150" y="54" textAnchor="middle" fontSize="10" fontWeight="700" fill={clr}>R</text>
+        <line x1="150" y1="66" x2="150" y2="100" stroke="#334155" strokeWidth="2"/>
+        <text x="150" y="112" textAnchor="middle" fontSize="8" fill={clr}>IR={fmt(c.I_R,3)}A</text>
+      </>}
+      {/* L branch at x=250 */}
+      {hasL && <>
+        <line x1="250" y1="20" x2="250" y2="32" stroke="#334155" strokeWidth="2"/>
+        <path d="M242 32 q8-14 16 0 M242 46 q8-14 16 0" fill="none" stroke={clr} strokeWidth="2"/>
+        <line x1="250" y1="60" x2="250" y2="100" stroke="#334155" strokeWidth="2"/>
+        <text x="250" y="112" textAnchor="middle" fontSize="8" fill={clr}>IL={fmt(c.I_L,3)}A</text>
+      </>}
+      {/* C branch at x=350 */}
+      {hasC && <>
+        <line x1="350" y1="20" x2="350" y2="46" stroke="#334155" strokeWidth="2"/>
+        <line x1="338" y1="46" x2="362" y2="46" stroke={clr} strokeWidth="2.5"/>
+        <line x1="338" y1="52" x2="362" y2="52" stroke={clr} strokeWidth="2.5"/>
+        <line x1="350" y1="52" x2="350" y2="100" stroke="#334155" strokeWidth="2"/>
+        <text x="350" y="112" textAnchor="middle" fontSize="8" fill={clr}>IC={fmt(c.I_C,3)}A</text>
+      </>}
+      {/* voltmeter across source */}
+      <circle cx="410" cy="60" r="12" fill="var(--c-surface)" stroke="#7c3aed" strokeWidth="2"/>
+      <text x="410" y="64" textAnchor="middle" fontSize="10" fontWeight="800" fill="#7c3aed">V</text>
+      <line x1="410" y1="20" x2="410" y2="48" stroke="#7c3aed" strokeWidth="1.5" strokeDasharray="3 2"/>
+      <line x1="410" y1="72" x2="410" y2="100" stroke="#7c3aed" strokeWidth="1.5" strokeDasharray="3 2"/>
+      <text x="435" y="64" textAnchor="start" fontSize="8" fill="#7c3aed">{fmt(c.Vs,1)}V</text>
+    </svg>
+  )
+}
+
+/* ─── MonoPhasorPara SVG — reference: Vs (horizontal) ────────────────────── */
+
+function MonoPhasorPara({ c }) {
+  const W = 420, H = 200, ox = 120, oy = H / 2
+  const Imax = Math.max(c.I, 0.001)
+  const sc   = 70 / Imax   // current scale
+  // Branch currents relative to Vs (horizontal reference)
+  const IR_x = ox + sc * c.I_R, IR_y = oy           // horizontal (in-phase)
+  const IL_x = ox,              IL_y = oy + sc * c.I_L  // vertical down (lags 90°)
+  const IC_x = ox,              IC_y = oy - sc * c.I_C  // vertical up (leads 90°)
+  // I_total: horizontal = I_R, vertical = I_C - I_L
+  const IT_x = ox + sc * c.I_R
+  const IT_y = oy - sc * (c.I_C - c.I_L)
+
+  function Arr({ x2, y2, color, label, sub, dashed }) {
+    const dx = x2 - ox, dy = y2 - oy
+    const len = Math.sqrt(dx*dx + dy*dy)
+    if (len < 3) return null
+    const ux = dx/len, uy = dy/len
+    const hx = x2 - 8*ux, hy = y2 - 8*uy
+    return (
+      <g>
+        <line x1={ox} y1={oy} x2={hx} y2={hy} stroke={color} strokeWidth={dashed?1.5:2} strokeDasharray={dashed?'5 3':undefined}/>
+        <polygon points={`${x2},${y2} ${hx-5*uy},${hy+5*ux} ${hx+5*uy},${hy-5*ux}`} fill={color}/>
+        <text x={x2+12*ux} y={y2+12*uy+4} textAnchor="middle" fontSize="9" fill={color} fontWeight="700">{label}</text>
+        {sub && <text x={x2+12*ux} y={y2+12*uy+15} textAnchor="middle" fontSize="8" fill={color}>{sub}</text>}
+      </g>
+    )
+  }
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'calc(100% - 38px)' }}>
+      <line x1="0" y1={oy} x2={W} y2={oy} stroke="#e2e8f0"/>
+      <line x1={ox} y1="0" x2={ox} y2={H} stroke="#e2e8f0"/>
+      <text x="4" y="12" fontSize="9" fill="#94a3b8">Im↑</text>
+      <text x={W-30} y={oy-3} fontSize="9" fill="#94a3b8">Re→</text>
+
+      {/* Vs: horizontal reference */}
+      <line x1={ox} y1={oy} x2={ox+75} y2={oy} stroke="#1d4ed8" strokeWidth="2.5"/>
+      <polygon points={`${ox+75},${oy} ${ox+67},${oy-4} ${ox+67},${oy+4}`} fill="#1d4ed8"/>
+      <text x={ox+85} y={oy+4} fontSize="10" fill="#1d4ed8" fontWeight="700">Vs={fmt(c.Vs,1)}V</text>
+
+      {/* Branch currents (dashed) */}
+      {c.hasR && <Arr x2={IR_x} y2={IR_y} color="#16a34a" label="IR" sub={`${fmt(c.I_R,3)}A`} dashed/>}
+      {c.hasL && <Arr x2={IL_x} y2={IL_y} color="#dc2626" label="IL" sub={`${fmt(c.I_L,3)}A`} dashed/>}
+      {c.hasC && <Arr x2={IC_x} y2={IC_y} color="#0284c7" label="IC" sub={`${fmt(c.I_C,3)}A`} dashed/>}
+      {/* Total current I (solid) */}
+      <Arr x2={IT_x} y2={IT_y} color="#ea580c" label="I" sub={`${fmt(c.I,3)}A`}/>
+
+      {/* phi arc between Vs (0°) and I_total */}
+      {Math.abs(c.phi) > 0.02 && (() => {
+        const r = 30
+        const ex = ox + r, ey = oy + r * Math.sin(c.phi)  // phi>0 = I below Vs
+        const sweep = c.phi > 0 ? 1 : 0
+        return <>
+          <path d={`M ${ex} ${oy} A ${r} ${r} 0 0 ${sweep} ${ox+r*Math.cos(c.phi)} ${oy+r*Math.sin(c.phi)}`}
+            fill="none" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 2"/>
+          <text x={ox+r+5} y={oy+r*Math.sin(c.phi/2)} fontSize="9" fill="#64748b">φ={fmt(c.phi*180/Math.PI,1)}°</text>
+        </>
+      })()}
+
+      {/* legend */}
+      {[
+        ['#1d4ed8',`Vs — ${fmt(c.Vs,1)} V (referência)`],
+        ['#ea580c',`I — ${fmt(c.I,3)} A (total)`],
+        c.hasR?['#16a34a',`IR — ${fmt(c.I_R,3)} A (R, fase com Vs)`]:null,
+        c.hasL?['#dc2626',`IL — ${fmt(c.I_L,3)} A (L, −90° de Vs)`]:null,
+        c.hasC?['#0284c7',`IC — ${fmt(c.I_C,3)} A (C, +90° de Vs)`]:null,
+      ].filter(Boolean).map(([col,txt],i)=>(
+        <g key={i}>
+          <rect x={230} y={8+i*17} width={9} height={9} fill={col} rx="2"/>
+          <text x={242} y={18+i*17} fontSize="9" fill="var(--c-text)">{txt}</text>
+        </g>
+      ))}
+      <text x={W/2} y={H-4} textAnchor="middle" fontSize="11" fontWeight="700" fill="#334155">
+        {c.nat}  ·  FP = {fmt(c.FP,4)}  ·  φ = {fmt(c.phi*180/Math.PI,2)}°
+      </text>
+    </svg>
+  )
+}
+
+/* ─── TriPhasor3F SVG ────────────────────────────────────────────────────── */
+
+function TriPhasor3F({ VA_I, VB_I, VC_I, V_ph, inLabel }) {
+  const W = 380, H = 280, ox = W/2, oy = H/2
+  const scV = 85 / (V_ph || 1)
+  const iMags = [cx.mag(VA_I.I), cx.mag(VB_I.I), cx.mag(VC_I.I)]
+  const maxI  = Math.max(...iMags, 0.01)
+  const scI   = 60 / maxI
+
+  function Arr({ z, color, label, dashed, scale }) {
+    const x2 = ox + scale * z[0], y2 = oy - scale * z[1]
+    const dx = x2 - ox, dy = y2 - oy
+    const len = Math.sqrt(dx*dx + dy*dy)
+    if (len < 4) return null
+    const ux = dx/len, uy = dy/len
+    const hx = x2 - 7*ux, hy = y2 - 7*uy
+    return (
+      <g>
+        <line x1={ox} y1={oy} x2={hx} y2={hy} stroke={color} strokeWidth={dashed?1.5:2} strokeDasharray={dashed?'5 3':undefined}/>
+        <polygon points={`${x2},${y2} ${hx-4*uy},${hy+4*ux} ${hx+4*uy},${hy-4*ux}`} fill={color}/>
+        <text x={x2+10*ux} y={y2-10*uy} textAnchor="middle" fontSize="9" fill={color} fontWeight="700">{label}</text>
+      </g>
+    )
+  }
+
+  const pairs = [
+    { V: VA_I.V, I: VA_I.I, vClr:'#dc2626', iClr:'#f97316', lV:'VA', lI:'IA' },
+    { V: VB_I.V, I: VB_I.I, vClr:'#16a34a', iClr:'#65a30d', lV:'VB', lI:'IB' },
+    { V: VC_I.V, I: VC_I.I, vClr:'#2563eb', iClr:'#7c3aed', lV:'VC', lI:'IC' },
+  ]
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'calc(100% - 38px)' }}>
+      <line x1="0" y1={oy} x2={W} y2={oy} stroke="#e2e8f0"/>
+      <line x1={ox} y1="0" x2={ox} y2={H} stroke="#e2e8f0"/>
+      <text x="4" y="12" fontSize="9" fill="#94a3b8">Im↑</text>
+      <text x={W-22} y={oy-3} fontSize="9" fill="#94a3b8">Re→</text>
+      {pairs.flatMap(({V,I,vClr,iClr,lV,lI}) => [
+        V ? <Arr key={lV} z={V} color={vClr} label={lV} scale={scV}/> : null,
+        I ? <Arr key={lI} z={I} color={iClr} label={lI} dashed scale={scI}/> : null,
+      ])}
+      {/* Legend */}
+      {pairs.map(({vClr,iClr,lV,lI},i)=>(
+        <g key={i}>
+          <rect x={10} y={8+i*28} width={8} height={8} fill={vClr} rx="1"/>
+          <text x={21} y={16+i*28} fontSize="8" fill="var(--c-text)">{lV} (tensão)</text>
+          <rect x={10} y={19+i*28} width={8} height={8} fill={iClr} rx="1"/>
+          <text x={21} y={27+i*28} fontSize="8" fill="var(--c-text)">{lI} (corrente)</text>
+        </g>
+      ))}
+      <text x={ox} y={H-4} textAnchor="middle" fontSize="10" fill="#64748b">
+        Escala V: ×{(1/scV).toFixed(1)}  ·  Escala I: ×{(1/scI).toFixed(3)}  ·  {inLabel}
+      </text>
+    </svg>
+  )
+}
+
+/* ─── LoadParamFields helper ─────────────────────────────────────────────── */
+
+function LoadParamFields({ lt, prefix, vals, onChange }) {
+  const T = TRI_LOAD_TYPES.find(t => t.id === lt) ?? TRI_LOAD_TYPES[1]
+  const has = f => T.fields.includes(f)
+  const p   = prefix ? prefix+'_' : ''
+  return <>
+    {has('R')   && <PField label="R" unit="Ω" value={vals[p+'R']   ?? '10'}   onChange={v=>onChange(p+'R',v)}/>}
+    {has('L')   && <PField label="L" unit="H" value={vals[p+'L']   ?? '0,05'} onChange={v=>onChange(p+'L',v)}/>}
+    {has('C')   && <PField label="C" unit="F" value={vals[p+'C']   ?? '0,001'}onChange={v=>onChange(p+'C',v)}/>}
+    {has('Pn')  && <PField label="Pn"  unit="kW" value={vals[p+'Pn']  ?? '37'}  onChange={v=>onChange(p+'Pn',v)}/>}
+    {has('eta') && <PField label="η"   unit="%"  value={vals[p+'eta'] ?? '92'}  onChange={v=>onChange(p+'eta',v)}/>}
+    {has('FPm') && <PField label="FP motor" unit="" value={vals[p+'FPm'] ?? '0,87'} onChange={v=>onChange(p+'FPm',v)}/>}
+    {has('Cuf') && <PField label="C" unit="μF" value={vals[p+'Cuf'] ?? '50'}   onChange={v=>onChange(p+'Cuf',v)}/>}
+  </>
+}
+
 /* ─── SubCATri ────────────────────────────────────────────────────────────── */
 
 function SubCATri() {
+  const [mode, setMode]     = useState('analise')   // 'analise' | 'editor'
+  const [p, setP]           = useState(DEFAULT_TRI_LOADS)
+  const sp = (k, v) => setP(prev => ({...prev, [k]: v}))
+
+  // System-level legacy editor state
   const [params, setParams] = useState(TRI_DEFAULT)
   const calc    = useMemo(() => calcTri(params), [params])
   const msgs    = useMemo(() => validateTri(params, calc), [params, calc])
   const netlist = useMemo(() => genNetlist(params, calc), [params, calc])
-
-  function sp(k, v) { setParams(prev => ({ ...prev, [k]: v })) }
-
+  function spe(k, v) { setParams(prev => ({...prev, [k]: v})) }
   const errCount  = msgs.filter(m => m.sev === 'Erro').length
   const warnCount = msgs.filter(m => m.sev === 'Aviso').length
 
-  const parts = (() => {
-    const badge = (pct, t1=100, t2=80) => pct>t1?'Erro':pct>t2?'Aviso':'OK'
-    const Rv = parseNum(params.r1_valor)
-    return [
-      ['V1','Fonte CA','3',`${params.v1_tensao} kV/${params.v1_freq} Hz`,params.v1_ligacao,'OK'],
-      ['Q1','Disjuntor','3',`${params.q1_inominal} A`,'—',badge(calc.q_pct)],
-      ['TC1','TC','3',`${params.tc1_primario}/${params.tc1_secundario} A`,'—',badge(calc.tc_pct,100,90)],
-      ['R1','Resistor','3',`${params.r1_valor} Ω`,'—',(!isNaN(Rv)&&Rv>0&&Rv<0.05)?'Aviso':'OK'],
-      ['M1','Medidor','3','V, A, kW, kvar, FP',params.v1_ligacao,'OK'],
-      ['L1','Carga RLC','3',`${params.l1_p} kW/${params.l1_q} kvar`,params.v1_ligacao,badge(calc.q_pct)],
-    ]
-  })()
+  // Equilibrada calcs
+  const rBal  = useMemo(() => calcTriBal(p), [p])
+  // Desequilibrada calcs
+  const rUBY  = useMemo(() => calcTriUnbalY(p), [p])
+  const rUBD  = useMemo(() => calcTriUnbalD(p), [p])
 
-  return (
-    <div className="circuit-editor-grid">
-      {/* LEFT: params */}
-      <aside className="panel" style={{ gridRow:'1/3', minHeight:0 }}>
-        <div className="panel__head">Parâmetros do Circuito</div>
-        <div className="panel__body scroll-y" style={{ height:'calc(100% - 38px)', overflow:'auto' }}>
-          <Section title="Fonte CA (V1)">
-            <PField label="Tensão"     unit="kV" value={params.v1_tensao}  onChange={v=>sp('v1_tensao',v)} />
-            <PField label="Frequência" unit="Hz" value={params.v1_freq}    onChange={v=>sp('v1_freq',v)} />
-            <PSelect label="Ligação" value={params.v1_ligacao} onChange={v=>sp('v1_ligacao',v)} options={['Y','D','Δ']} />
-          </Section>
-          <Section title="Disjuntor (Q1)">
-            <PField label="I nominal" unit="A" value={params.q1_inominal} onChange={v=>sp('q1_inominal',v)} />
-            <Indicator label="Carregamento" pct={calc.q_pct} />
-          </Section>
-          <Section title="TC de Corrente (TC1)">
-            <PField label="I primário"   unit="A" value={params.tc1_primario}   onChange={v=>sp('tc1_primario',v)} />
-            <PField label="I secundário" unit="A" value={params.tc1_secundario} onChange={v=>sp('tc1_secundario',v)} />
-            <Indicator label="Carregamento TC" pct={calc.tc_pct} />
-          </Section>
-          <Section title="Resistência de linha (R1)">
-            <PField label="Resistência" unit="Ω" value={params.r1_valor} onChange={v=>sp('r1_valor',v)} />
-          </Section>
-          <Section title="Carga RLC (L1)">
-            <PField label="Pot. ativa"   unit="kW"   value={params.l1_p} onChange={v=>sp('l1_p',v)} />
-            <PField label="Pot. reativa" unit="kvar" value={params.l1_q} onChange={v=>sp('l1_q',v)} />
-          </Section>
+  const isEq  = p.balanco === 'eq'
+  const isY   = p.ligacao === 'Y'
+
+  // Resolve unified phasor data
+  const phasors = useMemo(() => {
+    if (isEq) {
+      return { VA_I: rBal.phaseA, VB_I: rBal.phaseB, VC_I: rBal.phaseC, V_ph: rBal.V_ph }
+    }
+    if (isY) {
+      const rs = rUBY.results
+      return {
+        VA_I: { V: rs[0].V, I: rs[0].I }, VB_I: { V: rs[1].V, I: rs[1].I }, VC_I: { V: rs[2].V, I: rs[2].I },
+        V_ph: parseNum(p.VL)/Math.sqrt(3)
+      }
+    }
+    // Δ: use line voltages as V, line currents as I
+    const VL = parseNum(p.VL) || 13800
+    return {
+      VA_I: { V: cx.polar(VL/Math.sqrt(3), 0),           I: rUBD.IA },
+      VB_I: { V: cx.polar(VL/Math.sqrt(3), -2*Math.PI/3), I: rUBD.IB },
+      VC_I: { V: cx.polar(VL/Math.sqrt(3),  2*Math.PI/3), I: rUBD.IC },
+      V_ph: VL/Math.sqrt(3)
+    }
+  }, [isEq, isY, rBal, rUBY, rUBD, p.VL])
+
+  const lt = TRI_LOAD_TYPES.find(t => t.id === p.loadType) ?? TRI_LOAD_TYPES[1]
+  const pLabel = isEq ? `${isY?'Y':'Δ'} Eq.` : `${isY?'Y':'Δ'} Deseq.`
+
+  if (mode === 'editor') {
+    // Legacy circuit editor
+    const parts = (() => {
+      const badge = (pct, t1=100, t2=80) => pct>t1?'Erro':pct>t2?'Aviso':'OK'
+      const Rv = parseNum(params.r1_valor)
+      return [
+        ['V1','Fonte CA','3',`${params.v1_tensao} kV/${params.v1_freq} Hz`,params.v1_ligacao,'OK'],
+        ['Q1','Disjuntor','3',`${params.q1_inominal} A`,'—',badge(calc.q_pct)],
+        ['TC1','TC','3',`${params.tc1_primario}/${params.tc1_secundario} A`,'—',badge(calc.tc_pct,100,90)],
+        ['R1','Resistor','3',`${params.r1_valor} Ω`,'—',(!isNaN(Rv)&&Rv>0&&Rv<0.05)?'Aviso':'OK'],
+        ['M1','Medidor','3','V, A, kW, kvar, FP',params.v1_ligacao,'OK'],
+        ['L1','Carga RLC','3',`${params.l1_p} kW/${params.l1_q} kvar`,params.v1_ligacao,badge(calc.q_pct)],
+      ]
+    })()
+    return (
+      <div style={{ display:'flex', flexDirection:'column', flex:'1 1 auto', minHeight:0 }}>
+        <div style={{ display:'flex', gap:6, padding:'6px 12px', background:'var(--c-surface)', borderBottom:'1px solid var(--c-border)' }}>
+          <button className="btn btn-sm btn-ghost" onClick={()=>setMode('analise')}>← Análise de Cargas</button>
+          <span style={{ fontWeight:700, fontSize:13 }}>Editor Paramétrico (Sistema)</span>
         </div>
-      </aside>
-
-      {/* TOOLBAR */}
-      <div className="panel" style={{ gridColumn:'2/4' }}>
-        <div className="panel__body" style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
-          <span style={{ fontSize:11, fontWeight:700, color:'var(--c-text-muted)', marginRight:4 }}>Cenário:</span>
-          {TRI_PRESETS.map(pr => (
-            <button key={pr.label} className="btn btn-ghost btn-sm" onClick={() => setParams({...pr.p})}>{pr.label}</button>
-          ))}
-          <span style={{ flex:1 }} />
-          <button className="btn btn-ghost btn-sm" onClick={() => setParams(TRI_DEFAULT)}>Resetar</button>
-        </div>
-      </div>
-
-      {/* CANVAS */}
-      <main className="panel" style={{ minHeight:0 }}>
-        <div className="panel__body--np" style={{ height:'100%', backgroundImage:'radial-gradient(#dbe4f0 1px,transparent 1px)', backgroundSize:'14px 14px', position:'relative' }}>
-          <TriCircuitSvg p={params} c={calc} />
-          <div className="surface-box" style={{ position:'absolute', left:12, bottom:12, padding:'4px 10px', fontSize:11, display:'flex', gap:12 }}>
-            <span>I = <b>{fmt(calc.I)} A</b></span>
-            <span>FP = <b style={{ color:calc.FP<0.92&&calc.S>0?'var(--c-danger)':undefined }}>{fmt(calc.FP,3)}</b></span>
-            <span>V<sub>carga</sub> = <b>{fmt(calc.V_load/1000,3)} kV</b></span>
-            <span>η = <b>{fmt(calc.eta)}%</b></span>
-          </div>
-        </div>
-      </main>
-
-      {/* RIGHT: results */}
-      <aside className="panel" style={{ minHeight:0 }}>
-        <div className="panel__head">Resultados Calculados</div>
-        <div className="panel__body scroll-y" style={{ height:'calc(100% - 38px)', overflow:'auto' }}>
-          <Section title="Correntes e Potências">
-            <Result label="Corrente de linha" value={`${fmt(calc.I)} A`} />
-            <Result label="Potência aparente" value={`${fmt(calc.S/1000)} kVA`} />
-            <Result label="Fator de potência" value={`${fmt(calc.FP,3)} (${fmt(calc.phi,1)}°)`} highlight={calc.FP<0.92&&calc.S>0} />
-          </Section>
-          <Section title="Tensão e Perdas">
-            <Result label="Tensão na fonte"  value={`${params.v1_tensao} kV`} />
-            <Result label="Queda de tensão"  value={`${fmt(calc.V_drop)} V (${fmt(calc.vd_pct)}%)`} highlight={calc.vd_pct>5} />
-            <Result label="Tensão na carga"  value={`${fmt(calc.V_load/1000,3)} kV`} />
-            <Result label="Perdas na linha"  value={`${fmt(calc.Ploss/1000,2)} kW`} />
-            <Result label="Rendimento"       value={`${fmt(calc.eta)}%`} />
-          </Section>
-          <Section title="Carregamento">
-            <Indicator label={`Q1 (${params.q1_inominal} A)`}  pct={calc.q_pct} />
-            <Indicator label={`TC1 (${params.tc1_primario} A)`} pct={calc.tc_pct} />
-          </Section>
-        </div>
-      </aside>
-
-      {/* NETLIST */}
-      <div className="panel">
-        <div className="panel__head">Netlist</div>
-        <pre style={{ padding:12, fontSize:11, lineHeight:1.65, overflow:'auto', height:'calc(100% - 38px)', margin:0 }}>{netlist}</pre>
-      </div>
-
-      {/* VALIDATION */}
-      <div className="panel">
-        <div className="panel__head">Mensagens / Validação</div>
-        <div className="panel__body">
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
-            <span><b style={{ color:'#dc2626' }}>{errCount}</b> Erros</span>
-            <span><b style={{ color:'#d97706' }}>{warnCount}</b> Avisos</span>
-          </div>
-          {msgs.map((m,i) => <MsgItem key={i} sev={m.sev} text={m.text} />)}
-        </div>
-      </div>
-
-      {/* PARTS LIST */}
-      <div className="panel">
-        <div className="panel__head">Lista de Componentes</div>
-        <table className="tbl">
-          <thead><tr><th>ID</th><th>Tipo</th><th>Fases</th><th>Valor</th><th>Status</th></tr></thead>
-          <tbody>
-            {parts.map(row => (
-              <tr key={row[0]}>
-                <td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td>
-                <td><span className={`badge badge-${row[5]==='OK'?'green':row[5]==='Erro'?'red':'yellow'}`}>{row[5]}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* SINGLE LINE */}
-      <div className="panel">
-        <div className="panel__head">Diagrama Unifilar</div>
-        <svg viewBox="0 0 260 210" style={{ width:'100%', height:'calc(100% - 38px)' }}>
-          <line x1="130" y1="20" x2="130" y2="175" stroke="#111827" strokeWidth="2" />
-          <circle cx="130" cy="25" r="13" fill="#fff" stroke="#111827"/><text x="130" y="29" textAnchor="middle" fontSize="10">V1</text>
-          <rect x="118" y="60" width="24" height="18" fill="#fff" stroke="#111827"/><text x="152" y="74" fontSize="11">Q1</text>
-          <path d="M115 100 q15 -18 30 0 q-15 18 -30 0" fill="none" stroke="#111827"/><text x="152" y="105" fontSize="11">TC1</text>
-          <line x1="55" y1="150" x2="205" y2="150" stroke="#111827" strokeWidth="2" />
-          <circle cx="90" cy="150" r="18" fill="#fff" stroke="#1d4ed8"/><text x="90" y="156" textAnchor="middle" fill="#1d4ed8">M</text>
-          <circle cx="145" cy="150" r="18" fill="#fff" stroke="#111827"/><text x="145" y="156" textAnchor="middle">W</text>
-          <circle cx="190" cy="150" r="18" fill="#fff" stroke="#111827"/><text x="190" y="156" textAnchor="middle">L</text>
-        </svg>
-      </div>
-
-      {/* STATUS */}
-      <div className="panel">
-        <div className="panel__head">Status</div>
-        <div className="panel__body">
-          {[['Tensão nominal',`${params.v1_tensao} kV`],['I de linha',`${fmt(calc.I)} A`],['Componentes','6'],['Erros',`${errCount}`]].map(([k,v]) => (
-            <div key={k} style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
-              <span style={{ color:'#64748b' }}>{k}</span><b>{v}</b>
+        <div className="circuit-editor-grid" style={{ flex:'1 1 auto', minHeight:0 }}>
+          <aside className="panel" style={{ gridRow:'1/3', minHeight:0 }}>
+            <div className="panel__head">Parâmetros do Circuito</div>
+            <div className="panel__body scroll-y" style={{ height:'calc(100% - 38px)', overflow:'auto' }}>
+              <Section title="Fonte CA (V1)">
+                <PField label="Tensão" unit="kV" value={params.v1_tensao} onChange={v=>spe('v1_tensao',v)}/>
+                <PField label="Frequência" unit="Hz" value={params.v1_freq} onChange={v=>spe('v1_freq',v)}/>
+                <PSelect label="Ligação" value={params.v1_ligacao} onChange={v=>spe('v1_ligacao',v)} options={['Y','D','Δ']}/>
+              </Section>
+              <Section title="Disjuntor (Q1)">
+                <PField label="I nominal" unit="A" value={params.q1_inominal} onChange={v=>spe('q1_inominal',v)}/>
+                <Indicator label="Carregamento" pct={calc.q_pct}/>
+              </Section>
+              <Section title="TC de Corrente (TC1)">
+                <PField label="I primário" unit="A" value={params.tc1_primario} onChange={v=>spe('tc1_primario',v)}/>
+                <PField label="I secundário" unit="A" value={params.tc1_secundario} onChange={v=>spe('tc1_secundario',v)}/>
+                <Indicator label="Carregamento TC" pct={calc.tc_pct}/>
+              </Section>
+              <Section title="Resistência de linha (R1)">
+                <PField label="Resistência" unit="Ω" value={params.r1_valor} onChange={v=>spe('r1_valor',v)}/>
+              </Section>
+              <Section title="Carga (L1)">
+                <PField label="Pot. ativa" unit="kW" value={params.l1_p} onChange={v=>spe('l1_p',v)}/>
+                <PField label="Pot. reativa" unit="kvar" value={params.l1_q} onChange={v=>spe('l1_q',v)}/>
+              </Section>
             </div>
-          ))}
-          <div className={`result-panel ${errCount>0?'result-panel--warning':warnCount>0?'result-panel--warning':'result-panel--success'}`} style={{ marginTop:16, padding:12, fontWeight:800 }}>
-            {errCount>0 ? `${errCount} erro(s) detectado(s)` : warnCount>0 ? `${warnCount} aviso(s)` : 'Projeto válido'}
+          </aside>
+          <div className="panel" style={{ gridColumn:'2/4' }}>
+            <div className="panel__body" style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+              {TRI_PRESETS.map(pr=>(
+                <button key={pr.label} className="btn btn-ghost btn-sm" onClick={()=>setParams({...pr.p})}>{pr.label}</button>
+              ))}
+              <span style={{ flex:1 }}/>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setParams(TRI_DEFAULT)}>Resetar</button>
+            </div>
           </div>
+          <main className="panel" style={{ minHeight:0 }}>
+            <div className="panel__body--np" style={{ height:'100%', backgroundImage:'radial-gradient(#dbe4f0 1px,transparent 1px)', backgroundSize:'14px 14px', position:'relative' }}>
+              <TriCircuitSvg p={params} c={calc}/>
+              <div className="surface-box" style={{ position:'absolute', left:12, bottom:12, padding:'4px 10px', fontSize:11, display:'flex', gap:12 }}>
+                <span>I = <b>{fmt(calc.I)} A</b></span>
+                <span>FP = <b style={{ color:calc.FP<0.92&&calc.S>0?'var(--c-danger)':undefined }}>{fmt(calc.FP,3)}</b></span>
+                <span>V<sub>carga</sub> = <b>{fmt(calc.V_load/1000,3)} kV</b></span>
+                <span>η = <b>{fmt(calc.eta)}%</b></span>
+              </div>
+            </div>
+          </main>
+          <aside className="panel" style={{ minHeight:0 }}>
+            <div className="panel__head">Resultados</div>
+            <div className="panel__body scroll-y" style={{ height:'calc(100% - 38px)', overflow:'auto' }}>
+              <Section title="Correntes e Potências">
+                <Result label="Corrente de linha" value={`${fmt(calc.I)} A`}/>
+                <Result label="Potência aparente" value={`${fmt(calc.S/1000)} kVA`}/>
+                <Result label="Fator de potência" value={`${fmt(calc.FP,3)} (${fmt(calc.phi,1)}°)`} highlight={calc.FP<0.92&&calc.S>0}/>
+              </Section>
+              <Section title="Tensão e Perdas">
+                <Result label="Queda de tensão" value={`${fmt(calc.V_drop)} V (${fmt(calc.vd_pct)}%)`} highlight={calc.vd_pct>5}/>
+                <Result label="Tensão na carga" value={`${fmt(calc.V_load/1000,3)} kV`}/>
+                <Result label="Perdas na linha" value={`${fmt(calc.Ploss/1000,2)} kW`}/>
+                <Result label="Rendimento" value={`${fmt(calc.eta)}%`}/>
+              </Section>
+              <Section title="Carregamento">
+                <Indicator label={`Q1 (${params.q1_inominal} A)`} pct={calc.q_pct}/>
+                <Indicator label={`TC1 (${params.tc1_primario} A)`} pct={calc.tc_pct}/>
+              </Section>
+            </div>
+          </aside>
+          <div className="panel"><div className="panel__head">Netlist</div>
+            <pre style={{ padding:12, fontSize:11, lineHeight:1.65, overflow:'auto', height:'calc(100% - 38px)', margin:0 }}>{netlist}</pre>
+          </div>
+          <div className="panel"><div className="panel__head">Mensagens</div>
+            <div className="panel__body">
+              <div style={{ display:'flex', gap:16, marginBottom:10 }}>
+                <span><b style={{ color:'#dc2626' }}>{errCount}</b> Erros</span>
+                <span><b style={{ color:'#d97706' }}>{warnCount}</b> Avisos</span>
+              </div>
+              {msgs.map((m,i)=><MsgItem key={i} sev={m.sev} text={m.text}/>)}
+            </div>
+          </div>
+          <div className="panel"><div className="panel__head">Status</div>
+            <div className="panel__body">
+              <div className={`result-panel ${errCount>0?'result-panel--warning':warnCount>0?'result-panel--warning':'result-panel--success'}`} style={{ padding:12, fontWeight:800 }}>
+                {errCount>0?`${errCount} erro(s)`:warnCount>0?`${warnCount} aviso(s)`:'Projeto válido'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Análise de Cargas mode ────────────────────────────────────────────────
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'220px 1fr 260px', gap:12, padding:12, flex:'1 1 auto', minHeight:0, overflow:'auto' }}>
+
+      {/* LEFT: config */}
+      <div className="panel" style={{ display:'flex', flexDirection:'column', minHeight:0 }}>
+        <div className="panel__head">Configuração CA Trifásico</div>
+        <div style={{ flex:1, overflow:'auto', padding:'10px 12px' }}>
+
+          {/* Mode switch */}
+          <button className="btn btn-ghost btn-sm" style={{ width:'100%', marginBottom:10 }}
+            onClick={()=>setMode('editor')}>Editor Paramétrico →</button>
+
+          <Section title="Fonte">
+            <PField label="V linha" unit="V" value={p.VL}   onChange={v=>sp('VL',v)}/>
+            <PField label="Freq."   unit="Hz" value={p.freq} onChange={v=>sp('freq',v)}/>
+          </Section>
+
+          <Section title="Ligação">
+            <div style={{ display:'flex', gap:6 }}>
+              {['Y','D'].map(lig=>(
+                <button key={lig} className={`btn btn-sm${p.ligacao===lig?'':' btn-ghost'}`}
+                  style={{ flex:1, background:p.ligacao===lig?'#1d4ed8':undefined, color:p.ligacao===lig?'#fff':undefined }}
+                  onClick={()=>sp('ligacao',lig)}>
+                  {lig==='Y'?'Y — Estrela':'Δ — Triângulo'}
+                </button>
+              ))}
+            </div>
+          </Section>
+
+          <Section title="Distribuição">
+            <div style={{ display:'flex', gap:6 }}>
+              {[['eq','Equilibrada'],['deseq','Desequilibrada']].map(([v,l])=>(
+                <button key={v} className={`btn btn-sm${p.balanco===v?'':' btn-ghost'}`}
+                  style={{ flex:1, fontSize:10, background:p.balanco===v?'#7c3aed':undefined, color:p.balanco===v?'#fff':undefined }}
+                  onClick={()=>sp('balanco',v)}>{l}</button>
+              ))}
+            </div>
+          </Section>
+
+          {isEq ? (
+            /* Equilibrada: single load selector + params */
+            <>
+              <Section title="Tipo de Carga">
+                {TRI_LOAD_TYPES.map(t=>(
+                  <button key={t.id} className="btn btn-sm"
+                    style={{ width:'100%', textAlign:'left', marginBottom:4,
+                      background:p.loadType===t.id?t.color:'transparent',
+                      color:p.loadType===t.id?'#fff':'var(--c-text)',
+                      border:`1px solid ${t.color}` }}
+                    onClick={()=>sp('loadType',t.id)}>{t.label}</button>
+                ))}
+              </Section>
+              <Section title={`Parâmetros — ${lt.label}`}>
+                <LoadParamFields lt={p.loadType} prefix="" vals={p} onChange={sp}/>
+              </Section>
+            </>
+          ) : (
+            /* Desequilibrada: 3 phases each with their own load type + params */
+            ['A','B','C'].map(ph=>(
+              <Section key={ph} title={`Fase ${ph}`}>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:6 }}>
+                  {TRI_LOAD_TYPES.map(t=>(
+                    <button key={t.id} className="btn btn-sm"
+                      style={{ fontSize:9, padding:'2px 5px',
+                        background:p[ph+'_lt']===t.id?t.color:'transparent',
+                        color:p[ph+'_lt']===t.id?'#fff':'var(--c-text)',
+                        border:`1px solid ${t.color}` }}
+                      onClick={()=>sp(ph+'_lt',t.id)}>{t.id}</button>
+                  ))}
+                </div>
+                <LoadParamFields lt={p[ph+'_lt']||'RL'} prefix={ph} vals={p} onChange={sp}/>
+              </Section>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Center: phasor diagram */}
+      <div style={{ display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
+        <div className="panel" style={{ flex:'1 1 auto', minHeight:200 }}>
+          <div className="panel__head">Diagrama Fasorial Trifásico — {pLabel}</div>
+          <TriPhasor3F {...phasors} inLabel={pLabel}/>
+        </div>
+
+        {/* Total summary */}
+        <div className="panel" style={{ flexShrink:0 }}>
+          <div className="panel__head">Resumo Total</div>
+          <div style={{ display:'flex', gap:16, padding:'8px 14px', fontSize:12, flexWrap:'wrap' }}>
+            {isEq ? <>
+              <span>P = <b>{fmt(rBal.P/1000,2)} kW</b></span>
+              <span>Q = <b>{fmt(rBal.Q/1000,2)} kvar</b></span>
+              <span>S = <b>{fmt(rBal.S/1000,2)} kVA</b></span>
+              <span>FP = <b style={{color:rBal.FP<0.92?'var(--c-danger)':undefined}}>{fmt(rBal.FP,4)}</b></span>
+              <span>I<sub>linha</sub> = <b>{fmt(rBal.I_line,3)} A</b></span>
+              <span style={{fontStyle:'italic',color:'var(--c-text-muted)'}}>{rBal.nat}</span>
+            </> : isY ? <>
+              <span>P = <b>{fmt(rUBY.P_tot/1000,2)} kW</b></span>
+              <span>Q = <b>{fmt(rUBY.Q_tot/1000,2)} kvar</b></span>
+              <span>S = <b>{fmt(rUBY.S_tot/1000,2)} kVA</b></span>
+              <span>FP = <b style={{color:rUBY.FP_tot<0.92?'var(--c-danger)':undefined}}>{fmt(rUBY.FP_tot,4)}</b></span>
+              <span>|IN| = <b>{fmt(cx.mag(rUBY.IN),3)} A</b></span>
+            </> : <>
+              <span>P = <b>{fmt(rUBD.P_tot/1000,2)} kW</b></span>
+              <span>Q = <b>{fmt(rUBD.Q_tot/1000,2)} kvar</b></span>
+              <span>S = <b>{fmt(rUBD.S_tot/1000,2)} kVA</b></span>
+              <span>FP = <b style={{color:rUBD.FP_tot<0.92?'var(--c-danger)':undefined}}>{fmt(rUBD.FP_tot,4)}</b></span>
+            </>}
+          </div>
+        </div>
+      </div>
+
+      {/* Right: per-phase results */}
+      <div className="panel" style={{ display:'flex', flexDirection:'column', minHeight:0 }}>
+        <div className="panel__head">Resultados por Fase</div>
+        <div style={{ flex:1, overflow:'auto', padding:'10px 12px' }}>
+          {isEq ? (
+            <>
+              <Section title="Por fase (idênticas)">
+                <Result label="V fase"   value={`${fmt(rBal.V_ph,1)} V`}/>
+                <Result label="I fase"   value={`${fmt(rBal.I_ph,4)} A`}/>
+                <Result label="|Z| fase" value={`${fmt(rBal.Z_mag,3)} Ω`}/>
+                <Result label="φ"        value={`${fmt(rBal.phi*180/Math.PI,2)}°`}/>
+                <Result label="FP"       value={fmt(rBal.FP,4)} highlight={rBal.FP<0.92&&rBal.S>0}/>
+                <Result label="P fase"   value={`${fmt(rBal.P1,1)} W`}/>
+                <Result label="Q fase"   value={`${fmt(rBal.Q1,1)} var`}/>
+              </Section>
+              {p.ligacao==='D' && <Section title="Triângulo">
+                <Result label="V ramo (=VL)" value={`${fmt(rBal.VL,1)} V`}/>
+                <Result label="I ramo"       value={`${fmt(rBal.I_ph,4)} A`}/>
+                <Result label="I linha"      value={`${fmt(rBal.I_line,4)} A (√3×I_ramo)`}/>
+              </Section>}
+            </>
+          ) : isY ? (
+            <>
+              {rUBY.results.map((r,i)=>(
+                <Section key={r.ph} title={`Fase ${r.ph}`}>
+                  <Result label="|I|" value={`${fmt(r.I_mag,4)} A`}/>
+                  <Result label="φ"   value={`${fmt(r.phi*180/Math.PI,2)}°`}/>
+                  <Result label="FP"  value={fmt(r.FP,4)} highlight={r.FP<0.92&&r.S>0}/>
+                  <Result label="P"   value={`${fmt(r.P/1000,3)} kW`}/>
+                  <Result label="Q"   value={`${fmt(r.Q/1000,3)} kvar`}/>
+                </Section>
+              ))}
+              <Section title="Neutro">
+                <Result label="|IN|" value={`${fmt(cx.mag(rUBY.IN),4)} A`}
+                  highlight={cx.mag(rUBY.IN)>rUBY.results[0].I_mag*0.1}/>
+              </Section>
+            </>
+          ) : (
+            <>
+              {[['AB','A'],['BC','B'],['CA','C']].map(([ramo,ph])=>{
+                const br = rUBD['br'+ramo]
+                return (
+                  <Section key={ramo} title={`Ramo ${ramo}`}>
+                    <Result label="|I|" value={`${fmt(br.I_mag,4)} A`}/>
+                    <Result label="φ"   value={`${fmt(br.phi*180/Math.PI,2)}°`}/>
+                    <Result label="FP"  value={fmt(br.FP,4)} highlight={br.FP<0.92&&br.S>0}/>
+                    <Result label="P"   value={`${fmt(br.P/1000,3)} kW`}/>
+                    <Result label="Q"   value={`${fmt(br.Q/1000,3)} kvar`}/>
+                    <Result label="|I linha| " value={`${fmt(cx.mag(rUBD[`I${ph}`]),4)} A`}/>
+                  </Section>
+                )
+              })}
+            </>
+          )}
         </div>
       </div>
     </div>
