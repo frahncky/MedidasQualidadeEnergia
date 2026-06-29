@@ -182,14 +182,14 @@ export default function Relatorios({ onNavigate }) {
               <button className="btn btn-ghost btn-sm" onClick={handleDownload}>Baixar</button>
             </div>
           </div>
-          <div style={{ height: 'calc(100% - 38px)', overflow: 'auto', background: '#e5e7eb', padding: 18 }}>
+          <div className="report-preview-wrap" style={{ height: 'calc(100% - 38px)' }}>
             {generated
               ? <ReportPage page={page} sections={[...selectedSections]} data={reportData} totalPages={totalPages} />
               : generating
-                ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#1d4ed8', fontWeight: 700 }}>⏳ Gerando {selectedSections.size} seções…</div>
-                : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', flexDirection: 'column', gap: 8 }}>
+                ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--c-primary)', fontWeight: 700 }}>⏳ Gerando {selectedSections.size} seções…</div>
+                : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--c-text-muted)', flexDirection: 'column', gap: 8 }}>
                     <div style={{ fontSize: 40 }}>≡</div>
-                    <div>Clique em <b style={{ color: '#1d4ed8' }}>Gerar Relatório</b> para visualizar</div>
+                    <div>Clique em <b style={{ color: 'var(--c-primary)' }}>Gerar Relatório</b> para visualizar</div>
                   </div>
             }
           </div>

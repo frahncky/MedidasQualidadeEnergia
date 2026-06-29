@@ -19,6 +19,7 @@
   --c-text-muted: #64748b;
   --c-text-light: #94a3b8;
   --c-heading: #123955;
+  --c-success: #16a34a;
   --c-input-bg: #f8fafc;
   --c-header-bg: #ffffff;
   --c-header-logo: #0f3f67;
@@ -46,6 +47,7 @@
   --c-text-muted: #8da4c0;
   --c-text-light: #5a7a9a;
   --c-heading: #7eb8f7;
+  --c-success: #4ade80;
   --c-input-bg: #17283c;
   --c-header-bg: #111e30;
   --c-header-logo: #7eb8f7;
@@ -489,6 +491,55 @@ html, body, #root {
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 [data-theme="dark"] .info-note { background:#172554; border-color:#1d4ed8; color:#93c5fd; }
+
+/* ── Drop zone (file import) ── */
+.drop-zone {
+  border: 1px dashed #93c5fd; border-radius: 8px; padding: 18px;
+  text-align: center; background: #f8fbff; transition: all var(--transition); cursor: pointer;
+}
+.drop-zone.hover, .drop-zone:focus-within {
+  border-color: var(--c-primary); background: #eff6ff;
+}
+[data-theme="dark"] .drop-zone { background: var(--c-surface-2); border-color: var(--c-border); }
+[data-theme="dark"] .drop-zone.hover { background: var(--c-nav-hover); border-color: var(--c-primary); }
+.drop-zone__title { font-weight: 700; color: var(--c-primary); }
+.drop-zone__sub   { color: var(--c-text-muted); font-size: 11px; margin: 4px 0 10px; }
+
+/* ── Alarm items (Metrologia > Alarmes e Avisos) ── */
+.alarm-item { display: flex; gap: 8px; padding: 8px; margin-bottom: 6px; border-radius: 6px; }
+.alarm-high   { background: #fee2e2; color: #991b1b; }
+.alarm-medium { background: #fef9c3; color: #713f12; }
+.alarm-low    { background: #dbeafe; color: #1e40af; }
+[data-theme="dark"] .alarm-high   { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .alarm-medium { background: #451a03; color: #fde68a; }
+[data-theme="dark"] .alarm-low    { background: #172554; color: #93c5fd; }
+
+/* ── Report preview container ── */
+.report-preview-wrap {
+  overflow: auto; padding: 18px;
+  background: #e5e7eb;
+  transition: background var(--transition);
+}
+[data-theme="dark"] .report-preview-wrap { background: var(--c-surface-3); }
+
+/* ── Progress bar track ── */
+.progress-track {
+  height: 8px; border-radius: 8px; margin-top: 8px;
+  background: var(--c-border);
+}
+
+/* ── Recharts dark mode overrides — must win over SVG attributes ── */
+[data-theme="dark"] .recharts-cartesian-grid line { stroke: var(--c-border) !important; }
+[data-theme="dark"] .recharts-cartesian-axis-line,
+[data-theme="dark"] .recharts-cartesian-axis-tick-line { stroke: var(--c-border) !important; }
+[data-theme="dark"] .recharts-text tspan { fill: var(--c-text-muted) !important; }
+[data-theme="dark"] .recharts-default-tooltip {
+  background: var(--c-surface-2) !important;
+  border: 1px solid var(--c-border) !important;
+  color: var(--c-text) !important;
+}
+[data-theme="dark"] .recharts-tooltip-label { color: var(--c-text) !important; }
+[data-theme="dark"] .recharts-legend-item-text { color: var(--c-text-muted) !important; }
 
 /* ── Report preview page (simulates a paper document) ── */
 .report-preview-page {

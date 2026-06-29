@@ -89,7 +89,7 @@ export default function Circuitos() {
 
       <div className="panel">
         <div className="panel__head">Netlist (Extrato)</div>
-        <pre style={{ padding: 12, fontSize: 11, lineHeight: 1.65, color: '#334155', overflow: 'auto', height: 'calc(100% - 38px)' }}>{`* Circuito Exemplo
+        <pre style={{ padding: 12, fontSize: 11, lineHeight: 1.65, color: 'var(--c-text)', overflow: 'auto', height: 'calc(100% - 38px)' }}>{`* Circuito Exemplo
 FONTE_CA V1 3 13800 60 0
 DISJUNTOR Q1 3 630
 TC TC1 3 300 5

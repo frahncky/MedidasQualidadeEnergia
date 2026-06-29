@@ -315,7 +315,7 @@ export default function Dashboard({ onNavigate }) {
                     ['THD-I (%)', '6,87', '7,12', '6,61'],
                   ].map(row => (
                     <tr key={row[0]}>
-                      {row.map((c, i) => <td key={i} style={i === 0 ? { fontWeight: 600, color: '#475569' } : {}}>{c}</td>)}
+                      {row.map((c, i) => <td key={i} style={i === 0 ? { fontWeight: 600, color: 'var(--c-text-muted)' } : {}}>{c}</td>)}
                     </tr>
                   ))}
                 </tbody>

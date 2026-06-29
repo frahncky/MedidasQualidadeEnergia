@@ -216,7 +216,7 @@ export default function EnergiaDemandaFP({ onNavigate }) {
           <div className="panel__body">
             {[
               ['Cargas Produtivas', 60.7, '#1d4ed8'], ['Cargas Auxiliares', 25.4, '#f97316'], ['Perdas Elétricas', 7.9, '#f59e0b'], ['Outros', 6.0, '#9333ea'],
-            ].map(([n, p, c]) => <div key={n} style={{ marginBottom: 13 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><b>{n}</b><span>{p}%</span></div><div style={{ height: 10, background: '#e2e8f0', borderRadius: 8 }}><div style={{ width: `${p}%`, height: '100%', background: c, borderRadius: 8 }} /></div></div>)}
+            ].map(([n, p, c]) => <div key={n} style={{ marginBottom: 13 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><b>{n}</b><span>{p}%</span></div><div className="progress-track" style={{ height: 10 }}><div style={{ width: `${p}%`, height: '100%', background: c, borderRadius: 8 }} /></div></div>)}
           </div>
         </div>
         <ChartPanel title="Previsão de Consumo e Custo">

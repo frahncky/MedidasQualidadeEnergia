@@ -131,11 +131,11 @@ export default function Simulacao() {
               <tbody>
                 {TABLE_ROWS.map(row => (
                   <tr key={row[0]}>
-                    <td style={{ fontWeight: 600, color: '#475569' }}>{row[0]}</td>
-                    <td style={{ fontFamily: 'monospace', color: '#7c3aed' }}>{row[1]}</td>
-                    <td style={{ fontWeight: 700, color: '#1d4ed8' }}>{row[2]}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--c-text-muted)' }}>{row[0]}</td>
+                    <td style={{ fontFamily: 'monospace', color: 'var(--c-primary)' }}>{row[1]}</td>
+                    <td style={{ fontWeight: 700, color: 'var(--c-primary)' }}>{row[2]}</td>
                     <td>{row[3]}</td>
-                    <td style={{ color: '#64748b', fontSize: 11 }}>{row[4]}</td>
+                    <td style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>{row[4]}</td>
                   </tr>
                 ))}
               </tbody>

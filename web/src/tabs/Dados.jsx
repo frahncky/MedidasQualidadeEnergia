@@ -179,20 +179,20 @@ export default function Dados() {
               accept={format ? FORMAT_EXTENSIONS[format] : '*'}
               onChange={handleFileChange} />
             <div
-              style={{ border: `1px dashed ${dropHover ? '#1d4ed8' : '#93c5fd'}`, borderRadius: 8, padding: 18, textAlign: 'center', background: dropHover ? '#eff6ff' : '#f8fbff', transition: 'all .15s', cursor: 'pointer' }}
+              className={`drop-zone${dropHover ? ' hover' : ''}`}
               onDragOver={e => { e.preventDefault(); setDropHover(true) }}
               onDragLeave={() => setDropHover(false)}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
             >
               {loading ? (
-                <div style={{ color: '#1d4ed8', fontWeight: 700 }}>⏳ Carregando {fileName}…</div>
+                <div style={{ color: 'var(--c-primary)', fontWeight: 700 }}>⏳ Carregando {fileName}…</div>
               ) : loaded ? (
-                <div style={{ color: '#16a34a', fontWeight: 700 }}>✓ {fileName} carregado com sucesso</div>
+                <div style={{ color: 'var(--c-success)', fontWeight: 700 }}>✓ {fileName} carregado com sucesso</div>
               ) : (
                 <>
-                  <div style={{ fontWeight: 700, color: '#1e3a8a' }}>Arraste e solte arquivos aqui ou clique para selecionar</div>
-                  <div style={{ color: '#64748b', fontSize: 11, margin: '4px 0 10px' }}>
+                  <div className="drop-zone__title">Arraste e solte arquivos aqui ou clique para selecionar</div>
+                  <div className="drop-zone__sub">
                     {format ? `Formato selecionado: ${format}` : 'CSV, XLSX, MAT, TDMS, COMTRADE ou banco SQL'}
                   </div>
                   <button className="btn btn-primary" onClick={e => { e.stopPropagation(); fileInputRef.current?.click() }}>Selecionar Arquivos</button>
@@ -300,7 +300,7 @@ export default function Dados() {
                     <span style={{ flex: 1 }}>{name}</span><b>{val}</b>
                   </div>
                 ))}
-                <div style={{ height: 8, borderRadius: 8, background: '#e2e8f0', marginTop: 8 }}>
+                <div className="progress-track">
                   <div style={{ width: '98%', height: '100%', borderRadius: 8, background: '#16a34a' }} />
                 </div>
                 <div style={{ textAlign: 'right', color: '#16a34a', fontWeight: 800, marginTop: 4 }}>98,2% qualidade</div>

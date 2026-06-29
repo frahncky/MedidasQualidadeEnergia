@@ -28,7 +28,7 @@ export default function Metrologia() {
           <thead><tr><th>Grandeza</th><th>Fonte</th><th>Tipo</th><th>Distribuição</th><th>u(x)</th><th>Sens.</th><th>Contrib.</th></tr></thead>
           <tbody>{uncertainty.map(r => <tr key={r[0]}>{r.map(c => <td key={c}>{c}</td>)}</tr>)}</tbody>
         </table>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.7fr', borderTop: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.7fr', borderTop: '1px solid var(--c-border)' }}>
           {['Incerteza Combinada: 0,135 A', 'k = 2,00', 'Incerteza Expandida: 0,270 A (0,135%)'].map(x => <div key={x} style={{ padding: 12, fontWeight: 800 }}>{x}</div>)}
         </div>
       </div>
@@ -99,7 +99,7 @@ export default function Metrologia() {
       <RiskMatrix />
       <div className="panel">
         <div className="panel__head">Alarmes e Avisos</div>
-        <div className="panel__body">{alarms.map(([msg, sev, ts]) => <div key={msg} style={{ display: 'flex', gap: 8, padding: 8, marginBottom: 6, borderRadius: 6, background: sev === 'Alto' ? '#fee2e2' : sev === 'Médio' ? '#fef9c3' : '#dbeafe' }}><b>{sev}</b><span style={{ flex: 1 }}>{msg}</span><span>{ts}</span></div>)}</div>
+        <div className="panel__body">{alarms.map(([msg, sev, ts]) => <div key={msg} className={`alarm-item ${sev === 'Alto' ? 'alarm-high' : sev === 'Médio' ? 'alarm-medium' : 'alarm-low'}`}><b>{sev}</b><span style={{ flex: 1 }}>{msg}</span><span style={{ whiteSpace: 'nowrap', opacity: .7 }}>{ts}</span></div>)}</div>
       </div>
     </div>
   )

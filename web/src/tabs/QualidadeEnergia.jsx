@@ -260,8 +260,8 @@ export default function QualidadeEnergia({ onNavigate }) {
                   ['Desequilíbrio', '47', '37%'], ['Flicker', '32', '25%'], ['Harmônicas', '23', '18%'],
                 ].map(([t, n, p]) => (
                   <div key={t} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6 }}>
-                    <span style={{ color: '#64748b' }}>{t}</span>
-                    <span><strong>{n}</strong> <span style={{ color: '#94a3b8' }}>({p})</span></span>
+                    <span style={{ color: 'var(--c-text-muted)' }}>{t}</span>
+                    <span><strong>{n}</strong> <span style={{ color: 'var(--c-text-light)' }}>({p})</span></span>
                   </div>
                 ))}
               </div>
