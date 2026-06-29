@@ -463,6 +463,7 @@ function SubCC() {
   const RL = parseNum(p.RL)
 
   return (
+    <>
     <div style={{ display:'grid', gridTemplateColumns:'210px 1fr 250px', gap:12, padding:12, flex:'1 1 auto', minHeight:0, overflow:'auto' }}>
 
       {/* Left: params */}
@@ -599,6 +600,10 @@ function SubCC() {
         </div>
       </div>
     </div>
+    <div className="circuit-sim-embed">
+      <Simulacao lockedMode="cc" embedded title="Montador de Cargas CC" />
+    </div>
+    </>
   )
 }
 
@@ -683,6 +688,7 @@ function SubCAMono() {
   const isSerie = cfg === 'serie'
 
   return (
+    <>
     <div style={{ display:'grid', gridTemplateColumns:'210px 1fr 240px', gap:12, padding:12, flex:'1 1 auto', minHeight:0, overflow:'auto' }}>
 
       {/* Left: config toggle + type + params */}
@@ -797,6 +803,10 @@ function SubCAMono() {
         </div>
       </div>
     </div>
+    <div className="circuit-sim-embed">
+      <Simulacao lockedMode="ca" embedded title="Montador de Cargas CA Monofásico" />
+    </div>
+    </>
   )
 }
 
@@ -1551,13 +1561,11 @@ export default function Circuitos() {
         <button className={`inner-nav-btn${sub==='cc'      ?' active':''}`} onClick={()=>setSub('cc')}>⚡ CC</button>
         <button className={`inner-nav-btn${sub==='ca-mono' ?' active':''}`} onClick={()=>setSub('ca-mono')}>〜 CA Monofásico</button>
         <button className={`inner-nav-btn${sub==='ca-tri'  ?' active':''}`} onClick={()=>setSub('ca-tri')}>⋈ CA Trifásico</button>
-        <button className={`inner-nav-btn${sub==='sim'     ?' active':''}`} onClick={()=>setSub('sim')}>▷ Simulação</button>
       </div>
 
       {sub==='cc'      && <SubCC />}
       {sub==='ca-mono' && <SubCAMono />}
       {sub==='ca-tri'  && <SubCATri />}
-      {sub==='sim'     && <Simulacao />}
     </div>
   )
 }

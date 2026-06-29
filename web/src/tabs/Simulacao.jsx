@@ -1,8 +1,4 @@
 import { useMemo, useState } from 'react'
-import {
-  Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, LineChart,
-  ResponsiveContainer, Tooltip, XAxis, YAxis
-} from 'recharts'
 
 const LOAD_TYPES = [
   { id: 'R', label: 'R - Resistiva', short: 'R', fields: ['R'], color: '#1d4ed8' },
@@ -14,10 +10,13 @@ const LOAD_TYPES = [
   { id: 'RLC', label: 'RLC - Série', short: 'RLC', fields: ['R', 'L', 'C'], color: '#d97706' },
 ]
 
-const DEFAULT_LOADS = [
-  { id: 1, type: 'R', qty: 1, R: 100, L: 0.05, C: 0.0001 },
-  { id: 2, type: 'LC', qty: 1, R: 10, L: 0.08, C: 0.000047 },
-]
+const DEFAULT_LOADS = {
+  cc: [{ id: 1, type: 'R', qty: 1, R: 100, L: 0.05, C: 0.0001 }],
+  ca: [
+    { id: 1, type: 'R', qty: 1, R: 100, L: 0.05, C: 0.0001 },
+    { id: 2, type: 'LC', qty: 1, R: 0, L: 0.08, C: 0.000047 },
+  ],
+}
 
 const FIELD_META = {
   R: { label: 'R (ohm)', step: '0.1', min: '0' },
@@ -27,17 +26,14 @@ const FIELD_META = {
 
 const fmt = (n, d = 2) => Number.isFinite(n) ? n.toFixed(d).replace('.', ',') : '-'
 const fmtUnit = (n, unit, d = 2) => `${fmt(n, d)} ${unit}`
-const nextId = loads => Math.max(0, ...loads.map(load => load.id)) + 1
-const loadType = id => LOAD_TYPES.find(type => type.id === id) ?? LOAD_TYPES[0]
-
-function hasField(type, field) {
-  return loadType(type).fields.includes(field)
-}
-
-function toNumber(value, fallback = 0) {
+const toNumber = (value, fallback = 0) => {
   const parsed = Number(String(value).replace(',', '.'))
   return Number.isFinite(parsed) ? parsed : fallback
 }
+const loadType = id => LOAD_TYPES.find(type => type.id === id) ?? LOAD_TYPES[0]
+const hasField = (type, field) => loadType(type).fields.includes(field)
+const nextId = loads => Math.max(0, ...loads.map(load => load.id)) + 1
+const signatureOf = load => [load.type, load.R, load.L, load.C].join('|')
 
 function complexDivRealByZ(v, re, im) {
   const den = re * re + im * im
@@ -49,13 +45,9 @@ function complexAdd(a, b) {
   return [a[0] + b[0], a[1] + b[1]]
 }
 
-function complexMag(a) {
-  return Math.hypot(a[0], a[1])
-}
-
-function calcBranch(load, source, frequency = source.f) {
+function calcBranch(load, source) {
   const type = load.type
-  const qty = Math.max(1, toNumber(load.qty, 1))
+  const qty = Math.max(1, Math.round(toNumber(load.qty, 1)))
   const R = hasField(type, 'R') ? Math.max(0, toNumber(load.R, 0)) : 0
   const L = hasField(type, 'L') ? Math.max(0, toNumber(load.L, 0)) : 0
   const C = hasField(type, 'C') ? Math.max(0, toNumber(load.C, 0)) : 0
@@ -73,8 +65,6 @@ function calcBranch(load, source, frequency = source.f) {
       R,
       L,
       C,
-      XL: 0,
-      XC: hasCapacitor ? Infinity : 0,
       Z: open ? Infinity : effectiveR,
       I,
       Ire: I,
@@ -82,14 +72,12 @@ function calcBranch(load, source, frequency = source.f) {
       Itotal: I * qty,
       P: V * I * qty,
       Q: 0,
-      S: V * I * qty,
       fp: I > 0 ? 1 : 0,
       nature: open ? 'Aberta em CC' : pureInductor ? 'Curto indutivo' : 'Resistiva',
-      warning: hasCapacitor ? 'Capacitor bloqueia CC em regime permanente' : pureInductor ? 'Indutor ideal vira curto em CC' : '',
     }
   }
 
-  const w = 2 * Math.PI * Math.max(0.001, frequency)
+  const w = 2 * Math.PI * Math.max(0.001, source.f)
   const XL = L > 0 ? w * L : 0
   const XC = C > 0 ? 1 / (w * C) : 0
   const X = XL - XC
@@ -98,16 +86,13 @@ function calcBranch(load, source, frequency = source.f) {
   const P = V * Ire * qty
   const Q = -V * Iim * qty
   const S = V * I * qty
-  const fp = S > 1e-9 ? Math.abs(P) / S : 0
+
   return {
     ...load,
     qty,
     R,
     L,
     C,
-    XL,
-    XC,
-    X,
     Z: Math.hypot(R, X),
     I,
     Ire,
@@ -115,24 +100,20 @@ function calcBranch(load, source, frequency = source.f) {
     Itotal: I * qty,
     P,
     Q,
-    S,
-    fp,
+    fp: S > 1e-9 ? Math.abs(P) / S : 0,
     nature: Q > 0.001 ? 'Indutiva' : Q < -0.001 ? 'Capacitiva' : 'Resistiva',
-    warning: type === 'LC' && Math.abs(X) < 0.5 ? 'LC perto da ressonância: corrente elevada' : '',
   }
 }
 
 function calcCircuit(loads, source) {
   const branches = loads.map(load => calcBranch(load, source))
   const totalI = branches.reduce((sum, branch) => complexAdd(sum, [branch.Ire * branch.qty, branch.Iim * branch.qty]), [0, 0])
-  const I = complexMag(totalI)
+  const I = Math.hypot(totalI[0], totalI[1])
   const V = source.mode === 'cc' ? source.Vdc : source.Vac
   const P = branches.reduce((sum, branch) => sum + branch.P, 0)
   const Q = branches.reduce((sum, branch) => sum + branch.Q, 0)
   const S = V * I
-  const fp = S > 1e-9 ? Math.abs(P) / S : 0
-  const Z = I > 1e-9 ? V / I : Infinity
-  const theta = Math.atan2(totalI[1], totalI[0])
+
   return {
     branches,
     totals: {
@@ -141,79 +122,165 @@ function calcCircuit(loads, source) {
       P,
       Q,
       S,
-      fp,
-      Z,
-      theta,
+      fp: S > 1e-9 ? Math.abs(P) / S : 0,
+      Z: I > 1e-9 ? V / I : Infinity,
       nature: source.mode === 'cc' ? 'CC permanente' : Q > 0.001 ? 'Indutivo' : Q < -0.001 ? 'Capacitivo' : 'Resistivo',
     },
   }
 }
 
-function waveformData(source, totals, points = 180) {
-  if (source.mode === 'cc') {
-    return Array.from({ length: 60 }, (_, i) => ({
-      t: i,
-      v: +source.Vdc.toFixed(4),
-      i: +totals.I.toFixed(4),
-      p: +(source.Vdc * totals.I).toFixed(4),
+function expandLoadBranches(branches) {
+  return branches.flatMap(branch =>
+    Array.from({ length: Math.max(1, Math.round(branch.qty)) }, (_, index) => ({
+      ...branch,
+      qty: 1,
+      copy: index + 1,
+      visualId: `${branch.id}-${index}`,
     }))
+  )
+}
+
+function ComponentGlyph({ field, x, y, color }) {
+  if (field === 'R') {
+    return (
+      <g>
+        <rect x={x - 18} y={y - 13} width="36" height="26" rx="4" fill="var(--c-surface)" stroke={color} strokeWidth="2" />
+        <text x={x} y={y + 4} textAnchor="middle" fontSize="13" fontWeight="800" fill={color}>R</text>
+      </g>
+    )
   }
-  const w = 2 * Math.PI * source.f
-  const cycles = 2
-  return Array.from({ length: points }, (_, index) => {
-    const t = (index / (points - 1)) * cycles / source.f
-    const v = source.Vac * Math.SQRT2 * Math.sin(w * t)
-    const i = totals.I * Math.SQRT2 * Math.sin(w * t + totals.theta)
-    return {
-      t: +(t * 1000).toFixed(3),
-      v: +v.toFixed(4),
-      i: +i.toFixed(4),
-      p: +(v * i).toFixed(2),
-    }
-  })
+
+  if (field === 'L') {
+    return (
+      <g fill="none" stroke={color} strokeWidth="2">
+        <path d={`M ${x - 18} ${y + 7} c 6 -18 12 -18 18 0 c 6 -18 12 -18 18 0`} />
+        <text x={x} y={y + 25} textAnchor="middle" fontSize="12" fontWeight="800" fill={color} stroke="none">L</text>
+      </g>
+    )
+  }
+
+  return (
+    <g stroke={color} strokeWidth="2">
+      <line x1={x - 17} y1={y - 8} x2={x + 17} y2={y - 8} />
+      <line x1={x - 17} y1={y + 8} x2={x + 17} y2={y + 8} />
+      <text x={x} y={y + 28} textAnchor="middle" fontSize="12" fontWeight="800" fill={color} stroke="none">C</text>
+    </g>
+  )
 }
 
-function frequencyData(loads, source) {
-  const freqs = Array.from({ length: 90 }, (_, index) => {
-    const min = Math.log10(1)
-    const max = Math.log10(10000)
-    return Math.pow(10, min + (max - min) * index / 89)
-  })
-  return freqs.map(f => {
-    const tempSource = { ...source, mode: 'ca', f }
-    const branches = loads.map(load => calcBranch(load, tempSource, f))
-    const totalI = branches.reduce((sum, branch) => complexAdd(sum, [branch.Ire * branch.qty, branch.Iim * branch.qty]), [0, 0])
-    const imagQ = branches.reduce((sum, branch) => sum + branch.Q, 0)
-    const I = complexMag(totalI)
-    return {
-      f: +f.toFixed(2),
-      Z: I > 1e-9 ? +(source.Vac / I).toFixed(4) : 999999,
-      Q: +imagQ.toFixed(2),
-    }
-  })
+function DynamicCircuitSvg({ source, branches, onRemoveBranch }) {
+  const physicalBranches = expandLoadBranches(branches)
+  const count = physicalBranches.length
+  const firstX = 190
+  const gap = 122
+  const lastX = count ? firstX + (count - 1) * gap : firstX
+  const W = Math.max(760, lastX + 130)
+  const H = 250
+  const topY = 62
+  const bottomY = 178
+  const sourceX = 86
+  const busEndX = Math.max(620, lastX + 72)
+
+  return (
+    <svg className="sim-circuit-svg" viewBox={`0 0 ${W} ${H}`} style={{ width: W, height: H }}>
+      <defs>
+        <marker id="sim-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+          <path d="M 0 0 L 8 4 L 0 8 z" fill="#ea580c" />
+        </marker>
+      </defs>
+
+      <rect x="10" y="10" width={W - 20} height={H - 20} rx="8" fill="var(--c-surface-2)" stroke="var(--c-border)" />
+      <line x1={sourceX} y1={topY} x2={busEndX} y2={topY} stroke="#dc2626" strokeWidth="4" strokeLinecap="round" />
+      <line x1={sourceX} y1={bottomY} x2={busEndX} y2={bottomY} stroke="#2563eb" strokeWidth="4" strokeLinecap="round" />
+      <text x={sourceX + 10} y="39" fontSize="12" fontWeight="800" fill="var(--c-text)">Barramento {source.mode.toUpperCase()}</text>
+      <text x={busEndX - 5} y="39" textAnchor="end" fontSize="11" fill="var(--c-text-muted)">
+        {count ? `${count} carga${count === 1 ? '' : 's'} física${count === 1 ? '' : 's'}` : 'sem cargas'}
+      </text>
+
+      <line x1={sourceX} y1={topY} x2={sourceX} y2="91" stroke="var(--c-text)" strokeWidth="2" />
+      <line x1={sourceX} y1="149" x2={sourceX} y2={bottomY} stroke="var(--c-text)" strokeWidth="2" />
+      <circle cx={sourceX} cy="120" r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
+      {source.mode === 'ca' ? (
+        <path d={`M ${sourceX - 20} 120 c 8 -17 16 -17 24 0 c 8 17 16 17 24 0`} fill="none" stroke="#0f766e" strokeWidth="2.5" />
+      ) : (
+        <g stroke="var(--c-text)" strokeWidth="2">
+          <line x1={sourceX - 13} y1="111" x2={sourceX + 13} y2="111" />
+          <line x1={sourceX} y1="98" x2={sourceX} y2="124" />
+          <line x1={sourceX - 13} y1="133" x2={sourceX + 13} y2="133" />
+        </g>
+      )}
+      <text x={sourceX} y="217" textAnchor="middle" fontSize="12" fontWeight="800" fill="var(--c-text)">
+        {source.mode === 'ca' ? `${fmt(source.Vac, 0)} Vca / ${fmt(source.f, 0)} Hz` : `${fmt(source.Vdc, 0)} Vcc`}
+      </text>
+
+      {count === 0 && (
+        <g>
+          <line x1="205" y1="120" x2="555" y2="120" stroke="var(--c-border)" strokeDasharray="6 7" strokeWidth="2" />
+          <text x="380" y="116" textAnchor="middle" fontSize="13" fontWeight="700" fill="var(--c-text-muted)">
+            Adicione cargas para expandir o circuito
+          </text>
+        </g>
+      )}
+
+      {physicalBranches.map((branch, index) => {
+        const x = firstX + index * gap
+        const type = loadType(branch.type)
+        const fields = type.fields
+        const usableTop = topY + 25
+        const usableBottom = bottomY - 25
+        const step = fields.length > 1 ? (usableBottom - usableTop) / (fields.length - 1) : 0
+        const points = fields.map((field, fieldIndex) => ({
+          field,
+          y: fields.length === 1 ? (topY + bottomY) / 2 : usableTop + step * fieldIndex,
+        }))
+
+        return (
+          <g key={branch.visualId}>
+            <line x1={x} y1={topY} x2={x} y2={bottomY} stroke="var(--c-text)" strokeWidth="2" />
+            <circle cx={x} cy={topY} r="5" fill="#dc2626" />
+            <circle cx={x} cy={bottomY} r="5" fill="#2563eb" />
+            <path d={`M ${x - 22} ${topY + 15} L ${x - 22} ${bottomY - 15}`} stroke="#ea580c" strokeWidth="1.8" markerEnd="url(#sim-arrow)" />
+            {points.map(point => (
+              <ComponentGlyph key={`${branch.visualId}-${point.field}`} field={point.field} x={x} y={point.y} color={type.color} />
+            ))}
+            <rect x={x - 38} y="190" width="76" height="33" rx="6" fill="var(--c-surface)" stroke="var(--c-border)" />
+            <text x={x} y="204" textAnchor="middle" fontSize="11" fontWeight="800" fill={type.color}>
+              {type.short}{branch.copy > 1 ? `.${branch.copy}` : ''}
+            </text>
+            <text x={x} y="217" textAnchor="middle" fontSize="9" fill="var(--c-text-muted)">
+              {fmtUnit(branch.I, 'A', 2)}
+            </text>
+            <g className="sim-circuit-remove" onClick={() => onRemoveBranch(branch.id)} role="button" aria-label={`Excluir uma carga ${type.short}`}>
+              <title>Excluir uma carga {type.short}</title>
+              <circle cx={x + 34} cy="48" r="10" fill="#fee2e2" stroke="#dc2626" />
+              <text x={x + 34} y="52" textAnchor="middle" fontSize="12" fontWeight="900" fill="#dc2626">x</text>
+            </g>
+          </g>
+        )
+      })}
+    </svg>
+  )
 }
 
-function loadSignature(load) {
-  return [load.type, load.R, load.L, load.C].join('|')
-}
-
-export default function Simulacao() {
-  const [source, setSource] = useState({ mode: 'ca', Vac: 127, Vdc: 12, f: 60 })
-  const [loads, setLoads] = useState(DEFAULT_LOADS)
-  const [draft, setDraft] = useState({ type: 'LC', qty: 1, R: 10, L: 0.05, C: 0.0001 })
-  const [running, setRunning] = useState(false)
+export default function Simulacao({ initialMode = 'ca', lockedMode = null, embedded = false, title = 'Montador de Cargas' } = {}) {
+  const fixedMode = lockedMode ?? initialMode
+  const [source, setSource] = useState({ mode: fixedMode, Vac: 127, Vdc: 12, f: 60 })
+  const [loads, setLoads] = useState(DEFAULT_LOADS[fixedMode] ?? DEFAULT_LOADS.ca)
+  const [draft, setDraft] = useState({ type: fixedMode === 'cc' ? 'R' : 'LC', qty: 1, R: 10, L: 0.05, C: 0.0001 })
 
   const circuit = useMemo(() => calcCircuit(loads, source), [loads, source])
-  const wave = useMemo(() => waveformData(source, circuit.totals), [source, circuit])
-  const freq = useMemo(() => frequencyData(loads, source), [loads, source])
   const selectedType = loadType(draft.type)
+  const totalPhysicalLoads = loads.reduce((sum, load) => sum + load.qty, 0)
 
   function updateSource(key, value) {
-    setSource(prev => ({ ...prev, [key]: key === 'mode' ? value : Math.max(0, toNumber(value, prev[key])) }))
+    setSource(prev => ({
+      ...prev,
+      [key]: key === 'mode' ? (lockedMode ?? value) : Math.max(0, toNumber(value, prev[key])),
+    }))
   }
 
   function updateDraft(key, value) {
-    setDraft(prev => ({ ...prev, [key]: key === 'type' ? value : value }))
+    setDraft(prev => ({ ...prev, [key]: value }))
   }
 
   function addLoad() {
@@ -225,48 +292,43 @@ export default function Simulacao() {
       L: toNumber(draft.L, 0),
       C: toNumber(draft.C, 0),
     }
-    const signature = loadSignature(normalized)
+    const signature = signatureOf(normalized)
     setLoads(prev => {
-      const existing = prev.find(load => loadSignature(load) === signature)
+      const existing = prev.find(load => signatureOf(load) === signature)
       if (!existing) return [...prev, normalized]
       return prev.map(load => load.id === existing.id ? { ...load, qty: load.qty + normalized.qty } : load)
     })
   }
 
   function changeQty(id, delta) {
-    setLoads(prev => prev.map(load => load.id === id ? { ...load, qty: Math.max(1, load.qty + delta) } : load))
-  }
-
-  function removeLoad(id) {
-    setLoads(prev => prev.filter(load => load.id !== id))
+    setLoads(prev => prev.flatMap(load => {
+      if (load.id !== id) return [load]
+      const nextQty = load.qty + delta
+      return nextQty > 0 ? [{ ...load, qty: nextQty }] : []
+    }))
   }
 
   function resetLoads() {
-    setLoads(DEFAULT_LOADS)
-  }
-
-  function handleRun() {
-    setRunning(true)
-    setTimeout(() => setRunning(false), 350)
+    setLoads(DEFAULT_LOADS[source.mode] ?? [])
   }
 
   const summaryCards = [
     ['Fonte', source.mode === 'ca' ? `${fmt(source.Vac, 0)} Vca` : `${fmt(source.Vdc, 0)} Vcc`, source.mode === 'ca' ? `${fmt(source.f, 1)} Hz` : 'Regime permanente'],
+    ['Cargas', `${totalPhysicalLoads}`, 'ramos físicos no desenho'],
     ['Corrente Total', fmtUnit(circuit.totals.I, 'A', 3), circuit.totals.nature],
-    ['Potência Ativa', fmtUnit(circuit.totals.P, 'W', 1), `${loads.reduce((sum, load) => sum + load.qty, 0)} cargas`],
-    ['FP / Eq.', source.mode === 'ca' ? fmt(circuit.totals.fp, 3) : '1,000', `Zeq ${fmtUnit(circuit.totals.Z, 'ohm', 2)}`],
+    ['Potência / FP', `${fmtUnit(circuit.totals.P, 'W', 1)} / ${source.mode === 'ca' ? fmt(circuit.totals.fp, 3) : '1,000'}`, `Zeq ${fmtUnit(circuit.totals.Z, 'ohm', 2)}`],
   ]
 
   return (
-    <div className="sim-page">
+    <div className={`sim-page${embedded ? ' sim-page--embedded' : ''}`}>
       <div className="sim-sidebar">
         <div className="panel">
-          <div className="panel__head">Fonte do Barramento</div>
+          <div className="panel__head">{title}</div>
           <div className="panel__body sim-form-grid">
             <label className="form-label">Modo</label>
             <div className="sim-segmented">
-              {['cc', 'ca'].map(mode => (
-                <button key={mode} className={`btn btn-sm ${source.mode === mode ? 'btn-primary' : 'btn-ghost'}`} onClick={() => updateSource('mode', mode)}>
+              {(lockedMode ? [lockedMode] : ['cc', 'ca']).map(mode => (
+                <button key={mode} className={`btn btn-sm ${source.mode === mode ? 'btn-primary' : 'btn-ghost'}`} onClick={() => updateSource('mode', mode)} disabled={Boolean(lockedMode)}>
                   {mode.toUpperCase()}
                 </button>
               ))}
@@ -274,28 +336,28 @@ export default function Simulacao() {
             {source.mode === 'ca' ? (
               <>
                 <label className="form-label">Tensão RMS</label>
-                <input className="form-input" type="number" value={source.Vac} onChange={e => updateSource('Vac', e.target.value)} />
+                <input className="form-input" type="number" value={source.Vac} onChange={event => updateSource('Vac', event.target.value)} />
                 <label className="form-label">Frequência</label>
-                <input className="form-input" type="number" value={source.f} onChange={e => updateSource('f', e.target.value)} />
+                <input className="form-input" type="number" value={source.f} onChange={event => updateSource('f', event.target.value)} />
               </>
             ) : (
               <>
                 <label className="form-label">Tensão CC</label>
-                <input className="form-input" type="number" value={source.Vdc} onChange={e => updateSource('Vdc', e.target.value)} />
+                <input className="form-input" type="number" value={source.Vdc} onChange={event => updateSource('Vdc', event.target.value)} />
               </>
             )}
           </div>
         </div>
 
         <div className="panel">
-          <div className="panel__head">Adicionar Carga Monofásica</div>
+          <div className="panel__head">Adicionar Carga</div>
           <div className="panel__body sim-form-grid">
             <label className="form-label">Tipo</label>
-            <select className="form-select" value={draft.type} onChange={e => updateDraft('type', e.target.value)}>
+            <select className="form-select" value={draft.type} onChange={event => updateDraft('type', event.target.value)}>
               {LOAD_TYPES.map(type => <option key={type.id} value={type.id}>{type.label}</option>)}
             </select>
             <label className="form-label">Quantidade</label>
-            <input className="form-input" type="number" min="1" value={draft.qty} onChange={e => updateDraft('qty', e.target.value)} />
+            <input className="form-input" type="number" min="1" value={draft.qty} onChange={event => updateDraft('qty', event.target.value)} />
             {selectedType.fields.map(field => (
               <div className="sim-field-pair" key={field}>
                 <label className="form-label">{FIELD_META[field].label}</label>
@@ -305,7 +367,7 @@ export default function Simulacao() {
                   min={FIELD_META[field].min}
                   step={FIELD_META[field].step}
                   value={draft[field]}
-                  onChange={e => updateDraft(field, e.target.value)}
+                  onChange={event => updateDraft(field, event.target.value)}
                 />
               </div>
             ))}
@@ -315,20 +377,11 @@ export default function Simulacao() {
         </div>
 
         <div className="info-note">
-          As cargas entram em paralelo no barramento. Em CC, capacitor fica aberto e indutor ideal vira curto em regime permanente.
+          Cada unidade aparece como um ramo no desenho. Use +, -, Remover ou o x no diagrama para expandir ou reduzir o circuito.
         </div>
       </div>
 
       <div className="sim-workspace">
-        <div className="action-bar">
-          <button className="btn btn-success btn-sm" onClick={handleRun}>{running ? '...' : 'Executar'}</button>
-          <button className="btn btn-dark btn-sm" onClick={() => setLoads([])}>Limpar circuito</button>
-          <button className="btn btn-dark btn-sm" onClick={resetLoads}>Exemplo</button>
-          <div style={{ flex: 1 }} />
-          <span className="status-dot">● {loads.length ? 'Circuito montado' : 'Sem cargas'}</span>
-          <span className="timer">{source.mode.toUpperCase()}</span>
-        </div>
-
         <div className="sim-summary-grid">
           {summaryCards.map(([label, value, detail]) => (
             <div className="mini-kpi" key={label}>
@@ -339,11 +392,20 @@ export default function Simulacao() {
           ))}
         </div>
 
+        <div className="panel sim-circuit-panel">
+          <div className="panel__head">Circuito Expansível</div>
+          <div className="sim-circuit-scroll">
+            <DynamicCircuitSvg source={source} branches={circuit.branches} onRemoveBranch={id => changeQty(id, -1)} />
+          </div>
+        </div>
+
         <div className="panel">
           <div className="panel__head">Cargas no Circuito</div>
           <div className="scroll-x">
             <table className="tbl">
-              <thead><tr><th>Qtd.</th><th>Tipo</th><th>R</th><th>L</th><th>C</th><th>|Z|</th><th>I total</th><th>P</th><th>Q</th><th>Natureza</th><th>Ações</th></tr></thead>
+              <thead>
+                <tr><th>Qtd.</th><th>Tipo</th><th>R</th><th>L</th><th>C</th><th>|Z|</th><th>I total</th><th>P</th><th>Q</th><th>Natureza</th><th>Ações</th></tr>
+              </thead>
               <tbody>
                 {circuit.branches.map(branch => (
                   <tr key={branch.id}>
@@ -356,83 +418,17 @@ export default function Simulacao() {
                     <td>{fmtUnit(branch.Itotal, 'A', 3)}</td>
                     <td>{fmtUnit(branch.P, 'W', 1)}</td>
                     <td>{source.mode === 'ca' ? fmtUnit(branch.Q, 'VAr', 1) : '-'}</td>
-                    <td>{branch.warning || branch.nature}</td>
+                    <td>{branch.nature}</td>
                     <td>
                       <button className="btn btn-ghost btn-sm" onClick={() => changeQty(branch.id, 1)}>+</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => changeQty(branch.id, -1)}>-</button>
-                      <button className="btn btn-danger btn-sm" onClick={() => removeLoad(branch.id)}>Remover</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setLoads(prev => prev.filter(load => load.id !== branch.id))}>Remover</button>
                     </td>
                   </tr>
                 ))}
-                {loads.length === 0 && <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Adicione uma carga para iniciar a simulação.</td></tr>}
+                {loads.length === 0 && <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Adicione uma carga para iniciar.</td></tr>}
               </tbody>
             </table>
-          </div>
-        </div>
-
-        <div className="sim-chart-grid">
-          <div className="panel">
-            <div className="panel__head">Formas de Onda do Barramento</div>
-            <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={wave} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                  <YAxis tick={{ fontSize: 9 }} />
-                  <Tooltip />
-                  <Legend iconSize={9} wrapperStyle={{ fontSize: 10 }} />
-                  <Line type="monotone" dataKey="v" stroke="#1d4ed8" dot={false} name={source.mode === 'ca' ? 'v(t) V' : 'Vcc'} strokeWidth={2} />
-                  <Line type="monotone" dataKey="i" stroke="#ea580c" dot={false} name={source.mode === 'ca' ? 'i(t) A' : 'Icc'} strokeWidth={1.5} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel__head">Potência Instantânea / Total</div>
-            <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={wave} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="t" tick={{ fontSize: 9 }} />
-                  <YAxis tick={{ fontSize: 9 }} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="p" stroke="#7c3aed" dot={false} name="p(t) W" strokeWidth={1.5} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel__head">Corrente por Carga</div>
-            <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={circuit.branches.map(branch => ({ name: `${loadType(branch.type).short} x${branch.qty}`, I: +branch.Itotal.toFixed(4), color: loadType(branch.type).color }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="name" tick={{ fontSize: 9 }} />
-                  <YAxis tick={{ fontSize: 9 }} />
-                  <Tooltip />
-                  <Bar dataKey="I" name="I total (A)">
-                    {circuit.branches.map(branch => <Cell key={branch.id} fill={loadType(branch.type).color} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel__head">Resposta em Frequência do Circuito</div>
-            <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={freq} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="f" type="number" scale="log" domain={['auto', 'auto']} tick={{ fontSize: 9 }} />
-                  <YAxis tick={{ fontSize: 9 }} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="Z" stroke="#0284c7" dot={false} name="|Zeq| ohm" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
           </div>
         </div>
       </div>

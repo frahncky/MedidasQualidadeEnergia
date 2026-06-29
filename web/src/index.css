@@ -1288,3 +1288,61 @@ body, button, input, select, textarea,
     grid-template-columns: 1fr;
   }
 }
+
+/* Embedded circuit builder inside CC / CA tabs */
+.circuit-sim-embed {
+  padding: 0 12px 12px;
+}
+
+.sim-page--embedded {
+  min-height: auto;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-surface);
+  overflow: hidden;
+}
+
+.sim-page--embedded .sim-sidebar {
+  width: 264px;
+  background: var(--c-surface);
+}
+
+.sim-page--embedded .sim-workspace {
+  gap: 10px;
+  padding: 12px;
+}
+
+.sim-circuit-panel {
+  min-height: 300px;
+}
+
+.sim-circuit-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px;
+  background: var(--c-surface-2);
+}
+
+.sim-circuit-svg {
+  display: block;
+  max-width: none;
+}
+
+.sim-circuit-remove {
+  cursor: pointer;
+}
+
+.sim-circuit-remove:focus {
+  outline: none;
+}
+
+.sim-circuit-remove:hover circle {
+  fill: #fecaca;
+}
+
+@media (max-width: 1280px) {
+  .sim-page--embedded .sim-sidebar {
+    width: auto;
+  }
+}
