@@ -1048,10 +1048,10 @@ body, button, input, select, textarea,
 .dashboard-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 196px);
-  max-height: calc(100vh - 196px);
-  min-height: 0;
-  overflow: hidden;
+  height: clamp(820px, calc(100vh - 196px), 980px);
+  max-height: none;
+  min-height: 820px;
+  overflow: visible;
   position: relative;
 }
 
@@ -1060,8 +1060,8 @@ body, button, input, select, textarea,
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 5fr) minmax(280px, 3fr);
   gap: 14px;
-  min-height: 0;
-  overflow: hidden;
+  min-height: 620px;
+  overflow: visible;
   padding: 0 14px 14px;
 }
 
@@ -1071,7 +1071,7 @@ body, button, input, select, textarea,
   gap: 10px;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .dashboard-col > .panel {
