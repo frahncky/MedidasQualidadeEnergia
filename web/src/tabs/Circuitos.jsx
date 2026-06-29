@@ -22,7 +22,7 @@ export default function Circuitos() {
   const [sub, setSub] = useState('editor')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
+    <div className="circuitos-page">
 
       {/* Inner sub-tab nav */}
       <div className="inner-nav">
@@ -36,7 +36,7 @@ export default function Circuitos() {
       </div>
 
       {sub === 'simulacao' ? <Simulacao /> : (
-    <div style={{ minHeight: 1080, display: 'grid', gridTemplateColumns: '240px minmax(760px, 1fr) 360px', gridTemplateRows: 'auto 540px 320px', gap: 14, padding: 14, overflow: 'visible' }}>
+    <div className="circuit-editor-grid">
       <aside className="panel" style={{ gridRow: '1 / 3', minHeight: 0 }}>
         <div className="panel__head">Componentes</div>
         <div className="panel__body">

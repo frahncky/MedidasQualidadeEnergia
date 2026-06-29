@@ -55,10 +55,10 @@ export default function Simulacao() {
   ]
 
   return (
-    <div style={{ display: 'flex', minHeight: 1100, overflow: 'visible', gap: 0 }}>
+    <div className="sim-page">
 
       {/* Left: type selector + params */}
-      <div style={{ width: 256, display: 'flex', flexDirection: 'column', gap: 8, padding: 10, flexShrink: 0, borderRight: '1px solid #e2e8f0', overflow: 'auto' }}>
+      <div className="sim-sidebar">
         <div className="panel">
           <div className="panel__head">Tipo de Simulação</div>
           <div className="panel__body sim-type-list">
@@ -108,7 +108,7 @@ export default function Simulacao() {
       </div>
 
       {/* Right: results */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, padding: 14, overflow: 'visible', minWidth: 0, minHeight: 1040 }}>
+      <div className="sim-workspace">
 
         {/* Action bar */}
         <div className="action-bar">
@@ -144,7 +144,7 @@ export default function Simulacao() {
         </div>
 
         {/* Charts grid */}
-        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, minHeight: 0 }}>
+        <div className="sim-chart-grid">
 
           <div className="panel">
             <div className="panel__head">Formas de Onda — v(t), i(t)</div>

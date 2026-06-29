@@ -1099,3 +1099,118 @@ body, button, input, select, textarea,
     min-height: 260px;
   }
 }
+
+/* Circuitos and simulation viewport tuning */
+.circuitos-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
+}
+
+.circuit-editor-grid {
+  display: grid;
+  grid-template-columns: 240px minmax(620px, 1fr) minmax(300px, 360px);
+  grid-template-rows: auto minmax(500px, 1fr) minmax(280px, 320px);
+  gap: 14px;
+  min-height: clamp(840px, calc(100vh - 196px), 1020px);
+  overflow: visible;
+  padding: 14px;
+}
+
+.circuit-editor-grid > .panel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.circuit-editor-grid > main.panel {
+  min-height: 420px;
+}
+
+.sim-page {
+  display: flex;
+  gap: 0;
+  min-height: clamp(820px, calc(100vh - 236px), 980px);
+  overflow: visible;
+}
+
+.sim-sidebar {
+  width: 256px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 8px;
+  align-self: stretch;
+  overflow: auto;
+  padding: 10px;
+  border-right: 1px solid var(--c-border);
+}
+
+.sim-workspace {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+  padding: 14px;
+}
+
+.sim-chart-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(250px, 1fr));
+  gap: 8px;
+  min-height: 560px;
+}
+
+.sim-chart-grid > .panel {
+  min-width: 0;
+  min-height: 250px;
+}
+
+@media (max-width: 1280px) {
+  .circuit-editor-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    min-height: auto;
+  }
+
+  .circuit-editor-grid > * {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+
+  .circuit-editor-grid > .panel {
+    min-height: 240px;
+  }
+
+  .circuit-editor-grid > main.panel {
+    min-height: 440px;
+  }
+
+  .sim-page {
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  .sim-sidebar {
+    width: auto;
+    align-self: auto;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--c-border);
+  }
+
+  .sim-chart-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    min-height: auto;
+  }
+
+  .sim-chart-grid > .panel {
+    min-height: 280px;
+  }
+}
