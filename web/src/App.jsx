@@ -19,7 +19,7 @@ const TABS = [
   { id: 'fasores',     label: 'Fasores / Trifásico',         Component: Fasores },
   { id: 'qualidade',   label: 'Qualidade de Energia',        Component: QualidadeEnergia },
   { id: 'energia',     label: 'Energia, Demanda e FP',       Component: EnergiaDemandaFP },
-  { id: 'metrologia',  label: 'Metrologia, TC/TP e Seg.',    Component: Metrologia },
+  { id: 'metrologia',  label: 'Metrologia, TC/TP e Segurança', Component: Metrologia },
   { id: 'relatorios',  label: 'Relatórios',                  Component: Relatorios },
 ]
 
@@ -29,18 +29,20 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Header */}
       <header className="header">
-        <span className="header__logo">⚡ SMQE</span>
+        <div className="header__brand">
+          <img className="header__icon" src="/favicon.svg" alt="" />
+          <span className="header__logo">SMQE</span>
+          <span className="header__subtitle">Simulador de Medição e Qualidade de Energia</span>
+        </div>
         <div className="header__sep" />
-        <span className="header__title">Plataforma de Medidas e Qualidade de Energia</span>
+        <span className="header__title">PLATAFORMA DE MEDIDAS, MEDIÇÃO E QUALIDADE DE ENERGIA</span>
         <div className="header__spacer" />
         <button className="header__btn">Importar Dados</button>
-        <button className="header__btn">Exportar</button>
+        <button className="header__btn">Gerar Relatório</button>
         <button className="header__btn">Configurações</button>
       </header>
 
-      {/* Tab navigation */}
       <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <nav className="tab-nav">
           {TABS.map(t => (
@@ -54,19 +56,18 @@ export default function App() {
           ))}
         </nav>
 
-        {/* Content */}
-        <div className="tab-content" style={{ flex: 1, overflow: 'hidden' }}>
+        <div className="tab-content" style={{ flex: 1 }}>
           <ActiveComponent />
         </div>
       </div>
 
-      {/* Status bar */}
       <footer className="statusbar">
         <span className="statusbar__item"><span className="statusbar__dot">●</span> Conectado</span>
-        <span className="statusbar__item">Subestação Principal · 13,8 kV</span>
-        <span className="statusbar__item">60,00 Hz · 2 kS/s</span>
-        <span className="statusbar__item" style={{ marginLeft: 'auto' }}>Usuário: Eng. Responsável</span>
-        <span className="statusbar__item">SMQE v2.0.0</span>
+        <span className="statusbar__item">Fonte: PQA-5000 #12345</span>
+        <span className="statusbar__item">Base: QE_DB_Local</span>
+        <span className="statusbar__item" style={{ marginLeft: 'auto' }}>Usuário: engenheiro</span>
+        <span className="statusbar__item">Versão: 1.2.0</span>
+        <span className="statusbar__help">?</span>
       </footer>
     </div>
   )
