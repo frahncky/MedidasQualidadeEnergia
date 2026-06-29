@@ -1,4 +1,4 @@
-# Configuracao no Cloudflare
+# Configuração no Cloudflare
 
 Este projeto esta configurado para Cloudflare com `Root directory` apontando para `web`.
 
@@ -22,9 +22,9 @@ Em Workers & Pages, abra o projeto, va em Settings > Build > Variables and Secre
 ou Environment variables, e crie essa variavel para Production.
 
 O `wrangler.toml` fica nesta pasta porque o Cloudflare executa o build dentro de `web`.
-O Vite gera `dist/`, e o Wrangler publica exatamente esse diretorio como assets estaticos.
+O Vite gera `dist/`, e o Wrangler publica exatamente esse diretório como assets estáticos.
 
-Nao adicione `public/_redirects` nem `not_found_handling = "single-page-application"`.
-O app usa navegacao por estado (tabs), sem roteamento de URL. O Cloudflare serve
-`index.html` automaticamente para `/`. A opcao SPA causava loop infinito na
-validacao do wrangler 4.105.0+ (erro 100324).
+Não adicione `public/_redirects` nem `not_found_handling = "single-page-application"`.
+O app usa navegação por estado (abas), sem roteamento de URL. O Cloudflare serve
+`index.html` automaticamente para `/`. A opção SPA causava loop infinito na
+validação do Wrangler 4.105.0+ (erro 100324).

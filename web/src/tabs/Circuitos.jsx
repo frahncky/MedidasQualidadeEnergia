@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import Simulacao from './Simulacao'
+
 const COMPONENTS = [
   ['Fonte CC', '+ -'], ['Fonte CA', '~'], ['Resistor', 'R'], ['Indutor', 'L'],
   ['Capacitor', 'C'], ['Carga RL', 'RL'], ['Carga RLC', 'RLC'], ['Motor', 'M'],
@@ -16,7 +19,23 @@ const PARTS = [
 ]
 
 export default function Circuitos() {
+  const [sub, setSub] = useState('editor')
+
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
+
+      {/* Inner sub-tab nav */}
+      <div className="inner-nav">
+        <span className="inner-nav__label">Módulo:</span>
+        <button className={`inner-nav-btn${sub==='editor'?' active':''}`} onClick={()=>setSub('editor')}>
+          ⊡ Editor de Circuitos
+        </button>
+        <button className={`inner-nav-btn${sub==='simulacao'?' active':''}`} onClick={()=>setSub('simulacao')}>
+          ▷ Simulação de Circuitos
+        </button>
+      </div>
+
+      {sub === 'simulacao' ? <Simulacao /> : (
     <div style={{ minHeight: 1080, display: 'grid', gridTemplateColumns: '240px minmax(760px, 1fr) 360px', gridTemplateRows: 'auto 540px 320px', gap: 14, padding: 14, overflow: 'visible' }}>
       <aside className="panel" style={{ gridRow: '1 / 3', minHeight: 0 }}>
         <div className="panel__head">Componentes</div>
@@ -35,7 +54,7 @@ export default function Circuitos() {
 
       <div className="panel" style={{ gridColumn: '2 / 4' }}>
         <div className="panel__body" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {['Novo', 'Abrir', 'Salvar', 'Salvar Como', 'Desfazer', 'Refazer', 'Conectar', 'Girar', 'Apagar', 'Duplicar', 'Alinhar', 'Zoom +', 'Zoom -', 'Grade', 'Verificacao'].map((b, i) => (
+          {['Novo', 'Abrir', 'Salvar', 'Salvar Como', 'Desfazer', 'Refazer', 'Conectar', 'Girar', 'Apagar', 'Duplicar', 'Alinhar', 'Zoom +', 'Zoom -', 'Grade', 'Verificação'].map((b, i) => (
             <button key={b} className={`btn ${i === 6 ? 'btn-primary' : i === 8 ? 'btn-danger' : 'btn-ghost'} btn-sm`}>{b}</button>
           ))}
         </div>
@@ -53,8 +72,8 @@ export default function Circuitos() {
         <div className="panel__body scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
           <b style={{ color: '#1d4ed8' }}>Carga RLC (ID: L1)</b>
           {[
-            ['Nome', 'Carga RLC'], ['Tag', 'L1'], ['Tipo', 'Carga RLC'], ['Potencia Ativa', '1000 kW'],
-            ['Potencia Reativa', '400 kvar'], ['Fator de Potencia', '0,96 Indutivo'], ['Tensao Nominal', '13,8 kV'], ['Frequencia', '60 Hz'],
+            ['Nome', 'Carga RLC'], ['Tag', 'L1'], ['Tipo', 'Carga RLC'], ['Potência Ativa', '1000 kW'],
+            ['Potência Reativa', '400 kvar'], ['Fator de Potência', '0,96 Indutivo'], ['Tensão Nominal', '13,8 kV'], ['Frequência', '60 Hz'],
           ].map(([label, value]) => (
             <div className="form-row" key={label} style={{ marginTop: 8 }}>
               <span className="form-label" style={{ minWidth: 105 }}>{label}</span>
@@ -63,7 +82,7 @@ export default function Circuitos() {
           ))}
           <div className="checklist" style={{ marginTop: 12 }}>
             <label><input type="checkbox" defaultChecked />Neutro aterrado</label>
-            <label><input type="checkbox" />Escalonar com tensao</label>
+            <label><input type="checkbox" />Escalonar com tensão</label>
           </div>
         </div>
       </aside>
@@ -84,16 +103,16 @@ FIM`}</pre>
       </div>
 
       <div className="panel">
-        <div className="panel__head">Mensagens / Validacao</div>
+        <div className="panel__head">Mensagens / Validação</div>
         <div className="panel__body">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
             <span><b style={{ color: '#dc2626' }}>0</b> Erros</span>
             <span><b style={{ color: '#d97706' }}>1</b> Aviso</span>
-            <span><b style={{ color: '#1d4ed8' }}>0</b> Informacoes</span>
+            <span><b style={{ color: '#1d4ed8' }}>0</b> Informações</span>
           </div>
-          <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 8, padding: 10 }}>R1: Valor de resistencia muito baixo (0,5 Ω). Verifique aquecimento.</div>
+          <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 8, padding: 10 }}>R1: Valor de resistência muito baixo (0,5 Ω). Verifique aquecimento.</div>
           <div className="checklist" style={{ marginTop: 12 }}>
-            {['Topologia do circuito', 'Conexoes eletricas', 'Referencia de terra', 'Unidades e coerencia'].map(x => <label key={x}><input type="checkbox" defaultChecked />{x} <b style={{ marginLeft: 'auto', color: '#16a34a' }}>OK</b></label>)}
+            {['Topologia do circuito', 'Conexões elétricas', 'Referência de terra', 'Unidades e coerência'].map(x => <label key={x}><input type="checkbox" defaultChecked />{x} <b style={{ marginLeft: 'auto', color: '#16a34a' }}>OK</b></label>)}
           </div>
         </div>
       </div>
@@ -114,13 +133,15 @@ FIM`}</pre>
       <div className="panel">
         <div className="panel__head">Status do Editor</div>
         <div className="panel__body">
-          <Info k="Versao do Projeto" v="1.0.0" />
+          <Info k="Versão do Projeto" v="1.0.0" />
           <Info k="Componentes" v="9" />
-          <Info k="Conexoes" v="27 nos" />
+          <Info k="Conexões" v="27 nós" />
           <Info k="Erros" v="0" />
-          <div style={{ marginTop: 16, padding: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#166534', fontWeight: 800 }}>Projeto valido</div>
+          <div style={{ marginTop: 16, padding: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#166534', fontWeight: 800 }}>Projeto válido</div>
         </div>
       </div>
+    </div>
+      )}
     </div>
   )
 }

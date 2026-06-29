@@ -1,29 +1,36 @@
+import { useState, useRef } from 'react'
 import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
 
-const SOURCES = [
-  ['PQA-5000 #12345', 'Online', '#16a34a'],
-  ['PQA-5000 #12346', 'Offline', '#94a3b8'],
-  ['PMU-120 #01', 'Online', '#16a34a'],
-  ['SQL Server - PQDB', 'Online', '#16a34a'],
-  ['Azure Blob Storage', 'Standby', '#d97706'],
+const SOURCES_LIST = [
+  { name: 'PQA-5000 #12345', group: 'Aquisições Locais',              status: 'Online',  color: '#16a34a' },
+  { name: 'PQA-5000 #12346', group: 'Aquisições Locais',              status: 'Offline', color: '#94a3b8' },
+  { name: 'PMU-120 #01',     group: 'Arquivos Locais',                status: 'Online',  color: '#16a34a' },
+  { name: 'SQL Server PQDB', group: 'Servidores / Banco de Dados',    status: 'Online',  color: '#16a34a' },
+  { name: 'Azure Blob Storage', group: 'Nuvem',                       status: 'Standby', color: '#d97706' },
 ]
+
+const GROUPS = ['Aquisições Locais', 'Arquivos Locais', 'Servidores / Banco de Dados', 'Nuvem', 'Dispositivos Remotos']
+
+const FORMATS = ['CSV', 'XLSX', 'MAT', 'TDMS', 'COMTRADE', 'Banco SQL']
+
+const FORMAT_EXTENSIONS = { CSV: '.csv', XLSX: '.xlsx,.xls', MAT: '.mat', TDMS: '.tdms', COMTRADE: '.cfg,.dat,.hdr', 'Banco SQL': '' }
 
 const FIELDS = [
-  ['Timestamp', 'DataHora', 'datetime', 'Obrigatorio'],
-  ['Va', 'Va_kV', 'double', 'Obrigatorio'],
-  ['Vb', 'Vb_kV', 'double', 'Obrigatorio'],
-  ['Vc', 'Vc_kV', 'double', 'Obrigatorio'],
-  ['Ia', 'Ia_A', 'double', 'Obrigatorio'],
-  ['Ib', 'Ib_A', 'double', 'Obrigatorio'],
-  ['Ic', 'Ic_A', 'double', 'Obrigatorio'],
-  ['Frequencia', 'Freq_Hz', 'double', 'Opcional'],
-  ['P', 'P_kW', 'double', 'Opcional'],
-  ['Q', 'Q_kVAr', 'double', 'Opcional'],
+  ['Timestamp',   'DataHora',  'datetime', 'Obrigatório'],
+  ['Va',          'Va_kV',     'double',   'Obrigatório'],
+  ['Vb',          'Vb_kV',     'double',   'Obrigatório'],
+  ['Vc',          'Vc_kV',     'double',   'Obrigatório'],
+  ['Ia',          'Ia_A',      'double',   'Obrigatório'],
+  ['Ib',          'Ib_A',      'double',   'Obrigatório'],
+  ['Ic',          'Ic_A',      'double',   'Obrigatório'],
+  ['Frequência',  'Freq_Hz',   'double',   'Opcional'],
+  ['P',           'P_kW',      'double',   'Opcional'],
+  ['Q',           'Q_kVAr',    'double',   'Opcional'],
 ]
 
-const PREVIEW = Array.from({ length: 12 }, (_, i) => ({
+const PREVIEW_BASE = Array.from({ length: 12 }, (_, i) => ({
   n: i + 1,
   ts: `31/05/2024 14:20:${String(i).padStart(2, '0')}.000`,
   va: (13.82 + Math.sin(i / 3) * 0.06).toFixed(2),
@@ -44,81 +51,177 @@ const WAVE = Array.from({ length: 60 }, (_, i) => ({
   ia: +(260 * Math.sin(i / 4 - 0.35)).toFixed(1),
   ib: +(260 * Math.sin(i / 4 - 2.44)).toFixed(1),
   ic: +(260 * Math.sin(i / 4 + 1.74)).toFixed(1),
-  f: +(60 + Math.sin(i / 7) * 0.05).toFixed(2),
+  f:  +(60 + Math.sin(i / 7) * 0.05).toFixed(2),
 }))
 
+const IMPORT_HISTORY = [
+  ['Medições_SP_01.csv', 'Local',     '31/05/2024 14:20'],
+  ['PQ_Abril_2024.mat',  'Local',     '30/05/2024 13:20'],
+  ['Eventos_TJ.tr0',    'Local',     '29/05/2024 12:20'],
+  ['Subestação_Abr.tdms','Servidor', '28/05/2024 11:20'],
+]
+
+const QUALITY_CHECKS = [
+  { name: 'Campos mapeados',      ok: true,  val: '9 / 9',  tone: 'green' },
+  { name: 'Dados numéricos',      ok: true,  val: 'OK',     tone: 'green' },
+  { name: 'Timestamps válidos',   ok: true,  val: 'OK',     tone: 'green' },
+  { name: 'Valores faltantes',    ok: false, val: '0,18%',  tone: 'warn'  },
+  { name: 'Valores fora de faixa',ok: false, val: '0,06%',  tone: 'warn'  },
+  { name: 'Consistência trifásica',ok: true, val: 'OK',     tone: 'green' },
+]
+
 export default function Dados() {
+  const [format, setFormat] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [checksRun, setChecksRun] = useState(false)
+  const [cleanOpts, setCleanOpts] = useState([true, true, true, false])
+  const [mappingTemplate, setMappingTemplate] = useState('Padrão - PQ e Energia')
+  const [dropHover, setDropHover] = useState(false)
+  const [fileName, setFileName] = useState('')
+  const fileInputRef = useRef(null)
+
+  function simulateLoad(name = 'arquivo_dados.csv') {
+    setFileName(name)
+    setLoading(true)
+    setLoaded(false)
+    setChecksRun(false)
+    setTimeout(() => { setLoading(false); setLoaded(true) }, 900)
+  }
+
+  function handleFileChange(e) {
+    const f = e.target.files?.[0]
+    if (f) simulateLoad(f.name)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDropHover(false)
+    const f = e.dataTransfer?.files?.[0]
+    if (f) simulateLoad(f.name)
+  }
+
+  function handleRunChecks() {
+    setChecksRun(false)
+    setTimeout(() => setChecksRun(true), 600)
+  }
+
+  function handleApplyFilter() {
+    setLoaded(false)
+    setTimeout(() => setLoaded(true), 400)
+  }
+
   return (
     <div style={{ minHeight: 1080, display: 'grid', gridTemplateColumns: '320px minmax(720px, 1fr) 360px', gap: 14, padding: 14, overflow: 'visible' }}>
+
+      {/* Left sidebar */}
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <div className="panel" style={{ flex: 1 }}>
-          <div className="panel__head">Fontes de Dados <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }}>+ Adicionar</button></div>
+          <div className="panel__head">Fontes de Dados
+            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => alert('Adicionar nova fonte de dados…')}>+ Adicionar</button>
+          </div>
           <div className="panel__body scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
-            {['Aquisicoes Locais', 'Arquivos Locais', 'Servidores / Banco de Dados', 'Nuvem', 'Dispositivos Remotos'].map((group, idx) => (
+            {GROUPS.map(group => (
               <div key={group} style={{ marginBottom: 12 }}>
                 <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{group}</div>
-                {SOURCES.slice(0, idx === 1 ? 3 : 2).map(([name, status, color]) => (
-                  <div key={`${group}-${name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: 12 }}>
+                {SOURCES_LIST.filter(s => s.group === group).map(s => (
+                  <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: 12, cursor: 'pointer', borderRadius: 5 }}
+                    onClick={() => simulateLoad(s.name + '_export.csv')}>
                     <span style={{ width: 18, color: '#1d4ed8' }}>▣</span>
-                    <span style={{ flex: 1 }}>{name}</span>
-                    <span style={{ width: 8, height: 8, borderRadius: 8, background: color }} />
-                    <span style={{ color: '#64748b', fontSize: 10 }}>{status}</span>
+                    <span style={{ flex: 1 }}>{s.name}</span>
+                    <span style={{ width: 8, height: 8, borderRadius: 8, background: s.color }} />
+                    <span style={{ color: '#64748b', fontSize: 10 }}>{s.status}</span>
                   </div>
                 ))}
+                {SOURCES_LIST.filter(s => s.group === group).length === 0 && (
+                  <div style={{ color: '#94a3b8', fontSize: 11, paddingLeft: 26 }}>Nenhuma fonte configurada</div>
+                )}
               </div>
             ))}
           </div>
         </div>
 
         <div className="panel" style={{ height: 250 }}>
-          <div className="panel__head">Historico de Arquivos Importados</div>
+          <div className="panel__head">Histórico de Arquivos Importados</div>
           <table className="tbl">
             <thead><tr><th>Arquivo</th><th>Origem</th><th>Data/Hora</th></tr></thead>
             <tbody>
-              {['Medicoes_SP_01.csv', 'PQ_Abril_2024.mat', 'Eventos_TJ.tr0', 'Subestacao_Abr_24.tdms'].map((name, i) => (
-                <tr key={name}><td>{name}</td><td>{i === 3 ? 'Servidor' : 'Local'}</td><td>31/05/2024 {14 - i}:20</td></tr>
+              {IMPORT_HISTORY.map(([name, orig, dt]) => (
+                <tr key={name} style={{ cursor: 'pointer' }} onClick={() => simulateLoad(name)}>
+                  <td>{name}</td><td>{orig}</td><td>{dt}</td>
+                </tr>
               ))}
             </tbody>
           </table>
         </div>
       </aside>
 
+      {/* Main area */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+
+        {/* Import panel */}
         <div className="panel">
           <div className="panel__head">Importar Dados</div>
           <div className="panel__body">
-            <div style={{ border: '1px dashed #93c5fd', borderRadius: 8, padding: 18, textAlign: 'center', background: '#f8fbff' }}>
-              <div style={{ fontWeight: 700, color: '#1e3a8a' }}>Arraste e solte arquivos aqui</div>
-              <div style={{ color: '#64748b', fontSize: 11, margin: '4px 0 10px' }}>CSV, XLSX, MAT, TDMS, COMTRADE ou banco SQL</div>
-              <button className="btn btn-primary">Selecionar Arquivos</button>
+            <input type="file" ref={fileInputRef} style={{ display: 'none' }}
+              accept={format ? FORMAT_EXTENSIONS[format] : '*'}
+              onChange={handleFileChange} />
+            <div
+              style={{ border: `1px dashed ${dropHover ? '#1d4ed8' : '#93c5fd'}`, borderRadius: 8, padding: 18, textAlign: 'center', background: dropHover ? '#eff6ff' : '#f8fbff', transition: 'all .15s', cursor: 'pointer' }}
+              onDragOver={e => { e.preventDefault(); setDropHover(true) }}
+              onDragLeave={() => setDropHover(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {loading ? (
+                <div style={{ color: '#1d4ed8', fontWeight: 700 }}>⏳ Carregando {fileName}…</div>
+              ) : loaded ? (
+                <div style={{ color: '#16a34a', fontWeight: 700 }}>✓ {fileName} carregado com sucesso</div>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 700, color: '#1e3a8a' }}>Arraste e solte arquivos aqui ou clique para selecionar</div>
+                  <div style={{ color: '#64748b', fontSize: 11, margin: '4px 0 10px' }}>
+                    {format ? `Formato selecionado: ${format}` : 'CSV, XLSX, MAT, TDMS, COMTRADE ou banco SQL'}
+                  </div>
+                  <button className="btn btn-primary" onClick={e => { e.stopPropagation(); fileInputRef.current?.click() }}>Selecionar Arquivos</button>
+                </>
+              )}
             </div>
-            <div className="grid-6 import-types" style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8, marginTop: 10 }}>
-              {['CSV', 'XLSX', 'MAT', 'TDMS', 'COMTRADE', 'Banco SQL'].map(type => (
-                <button key={type} className="btn btn-ghost" style={{ justifyContent: 'center' }}>{type}</button>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8, marginTop: 10 }}>
+              {FORMATS.map(f => (
+                <button key={f}
+                  className={`btn ${f === format ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ justifyContent: 'center' }}
+                  onClick={() => { setFormat(prev => prev === f ? null : f); fileInputRef.current && (fileInputRef.current.accept = FORMAT_EXTENSIONS[f] ?? '*') }}
+                >{f}</button>
               ))}
             </div>
           </div>
         </div>
 
+        {/* Field mapping */}
         <div className="panel" style={{ flex: 1, minHeight: 0 }}>
           <div className="panel__head">Mapeamento de Campos
             <div className="panel__head-actions">
-              <select className="form-select" style={{ width: 220 }}><option>Padrao - PQ e Energia</option></select>
-              <button className="btn btn-ghost btn-sm">Carregar</button>
-              <button className="btn btn-ghost btn-sm">Salvar</button>
+              <select className="form-select" value={mappingTemplate} onChange={e => setMappingTemplate(e.target.value)} style={{ width: 220 }}>
+                {['Padrão - PQ e Energia', 'IEC 61850', 'COMTRADE', 'Personalizado'].map(o => <option key={o}>{o}</option>)}
+              </select>
+              <button className="btn btn-ghost btn-sm" onClick={() => alert('Mapeamento carregado!')}>Carregar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => alert('Mapeamento salvo!')}>Salvar</button>
             </div>
           </div>
           <div className="panel__body--np scroll-y" style={{ maxHeight: 305, overflow: 'auto' }}>
             <table className="tbl">
-              <thead><tr><th>Campo Padrao</th><th>Coluna Arquivo</th><th>Unidade</th><th>Tipo</th><th>Status</th></tr></thead>
+              <thead><tr><th>Campo Padrão</th><th>Coluna Arquivo</th><th>Unidade</th><th>Tipo</th><th>Status</th></tr></thead>
               <tbody>
                 {FIELDS.map(([field, col, type, status]) => (
                   <tr key={field}>
                     <td style={{ fontWeight: 700 }}>{field}</td>
                     <td><select className="form-select" style={{ height: 24 }}><option>{col}</option></select></td>
-                    <td>{field[0] === 'V' ? 'kV' : field[0] === 'I' ? 'A' : field === 'Frequencia' ? 'Hz' : '-'}</td>
+                    <td>{field[0] === 'V' ? 'kV' : field[0] === 'I' ? 'A' : field === 'Frequência' ? 'Hz' : '-'}</td>
                     <td>{type}</td>
-                    <td><span className={status === 'Obrigatorio' ? 'badge badge-blue' : 'badge badge-green'}>{status}</span></td>
+                    <td><span className={status === 'Obrigatório' ? 'badge badge-blue' : 'badge badge-green'}>{status}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -126,58 +229,101 @@ export default function Dados() {
           </div>
         </div>
 
-        <div className="panel" style={{ flex: 1.1, minHeight: 0 }}>
-          <div className="panel__head">Pre-visualizacao dos Dados</div>
-          <div className="scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
-            <table className="tbl">
-              <thead><tr><th>#</th><th>Timestamp</th><th>Va</th><th>Vb</th><th>Vc</th><th>Ia</th><th>Ib</th><th>Ic</th><th>Freq</th><th>P</th></tr></thead>
-              <tbody>
-                {PREVIEW.map(r => (
-                  <tr key={r.n}><td>{r.n}</td><td>{r.ts}</td><td>{r.va}</td><td>{r.vb}</td><td>{r.vc}</td><td>{r.ia}</td><td>{r.ib}</td><td>{r.ic}</td><td>{r.f}</td><td>{r.p}</td></tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Data preview */}
+        {loaded && (
+          <div className="panel" style={{ flex: 1.1, minHeight: 0 }}>
+            <div className="panel__head">Pré-visualização dos Dados
+              <span className="panel__head-actions"><button className="btn btn-ghost btn-sm" onClick={handleApplyFilter}>Aplicar Filtros</button></span>
+            </div>
+            <div className="scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
+              <table className="tbl">
+                <thead><tr><th>#</th><th>Timestamp</th><th>Va</th><th>Vb</th><th>Vc</th><th>Ia</th><th>Ib</th><th>Ic</th><th>Freq</th><th>P</th></tr></thead>
+                <tbody>
+                  {PREVIEW_BASE.map(r => (
+                    <tr key={r.n}><td>{r.n}</td><td>{r.ts}</td><td>{r.va}</td><td>{r.vb}</td><td>{r.vc}</td><td>{r.ia}</td><td>{r.ib}</td><td>{r.ic}</td><td>{r.f}</td><td>{r.p}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, height: 170 }}>
-          <MiniChart title="Tensoes (kV)" keys={['va', 'vb', 'vc']} colors={['#1d4ed8', '#16a34a', '#dc2626']} />
-          <MiniChart title="Correntes (A)" keys={['ia', 'ib', 'ic']} colors={['#9333ea', '#0284c7', '#ea580c']} />
-          <MiniChart title="Frequencia (Hz)" keys={['f']} colors={['#1d4ed8']} />
-        </div>
+        {/* Mini charts */}
+        {loaded && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, height: 170 }}>
+            <MiniChart title="Tensões (kV)" keys={['va', 'vb', 'vc']} colors={['#1d4ed8', '#16a34a', '#dc2626']} />
+            <MiniChart title="Correntes (A)" keys={['ia', 'ib', 'ic']} colors={['#9333ea', '#0284c7', '#ea580c']} />
+            <MiniChart title="Frequência (Hz)" keys={['f']} colors={['#059669']} />
+          </div>
+        )}
+
+        {!loaded && !loading && (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 14 }}>
+            Selecione um arquivo ou fonte de dados para visualizar os dados
+          </div>
+        )}
       </main>
 
+      {/* Right sidebar */}
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <InfoPanel title="Metadados do Arquivo" rows={[
-          ['Arquivo', 'Medicoes_SP_01.csv'], ['Origem', 'Local'], ['Tamanho', '128,4 MB'],
-          ['Registros', '864.000'], ['Periodo', '31/05/2024 00:00 ate 23:59'], ['Codificacao', 'UTF-8'],
+          ['Arquivo', loaded ? fileName : '—'],
+          ['Origem', 'Local'],
+          ['Tamanho', loaded ? '128,4 MB' : '—'],
+          ['Registros', loaded ? '864.000' : '—'],
+          ['Período', loaded ? '31/05/2024 00:00 até 23:59' : '—'],
+          ['Codificação', 'UTF-8'],
         ]} />
+
         <div className="panel">
-          <div className="panel__head">Verificacoes de Qualidade</div>
+          <div className="panel__head">Verificações de Qualidade
+            <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={handleRunChecks} disabled={!loaded}>Executar</button>
+          </div>
           <div className="panel__body">
-            {[
-              ['Campos mapeados', '9 / 9', 'green'], ['Dados numericos', 'OK', 'green'], ['Timestamps validos', 'OK', 'green'],
-              ['Valores faltantes', '0,18%', 'warn'], ['Valores fora de faixa', '0,06%', 'warn'], ['Consistencia trifasica', 'OK', 'green'],
-            ].map(([name, val, tone]) => (
-              <div key={name} style={{ display: 'flex', marginBottom: 8, fontSize: 12 }}>
-                <span style={{ color: tone === 'green' ? '#16a34a' : '#d97706', fontWeight: 800, width: 20 }}>{tone === 'green' ? 'OK' : '!'}</span>
-                <span style={{ flex: 1 }}>{name}</span><b>{val}</b>
-              </div>
-            ))}
-            <div style={{ height: 8, borderRadius: 8, background: '#e2e8f0', marginTop: 8 }}>
-              <div style={{ width: '98%', height: '100%', borderRadius: 8, background: '#16a34a' }} />
-            </div>
-            <div style={{ textAlign: 'right', color: '#16a34a', fontWeight: 800, marginTop: 4 }}>98,2%</div>
+            {loaded && checksRun ? (
+              <>
+                {QUALITY_CHECKS.map(({ name, ok, val, tone }) => (
+                  <div key={name} style={{ display: 'flex', marginBottom: 8, fontSize: 12 }}>
+                    <span style={{ color: tone === 'green' ? '#16a34a' : '#d97706', fontWeight: 800, width: 20 }}>{tone === 'green' ? 'OK' : '!'}</span>
+                    <span style={{ flex: 1 }}>{name}</span><b>{val}</b>
+                  </div>
+                ))}
+                <div style={{ height: 8, borderRadius: 8, background: '#e2e8f0', marginTop: 8 }}>
+                  <div style={{ width: '98%', height: '100%', borderRadius: 8, background: '#16a34a' }} />
+                </div>
+                <div style={{ textAlign: 'right', color: '#16a34a', fontWeight: 800, marginTop: 4 }}>98,2% qualidade</div>
+              </>
+            ) : loaded ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 12 }}>Clique em <b>Executar</b> para verificar a qualidade dos dados.</div>
+            ) : (
+              <div style={{ color: '#94a3b8', textAlign: 'center', padding: 12 }}>Carregue um arquivo primeiro.</div>
+            )}
           </div>
         </div>
-        <InfoPanel title="Frequencia de Amostragem" rows={[['Detectada', '49,98 Hz'], ['Nominal', '50 Hz'], ['Tolerancia', '1,0%'], ['Metodo', 'Auto']]} />
-        <InfoPanel title="Filtros" rows={[['Passa-baixa', 'Ativo - 2.500 Hz'], ['Passa-alta', '0,50 Hz'], ['Notch 60 Hz', 'Ativo'], ['Tipo', 'IIR Butterworth']]} />
+
+        <InfoPanel title="Frequência de Amostragem" rows={[
+          ['Detectada', loaded ? '49,98 Hz' : '—'],
+          ['Nominal', '50 Hz'], ['Tolerância', '1,0%'], ['Método', 'Auto'],
+        ]} />
+
+        <InfoPanel title="Filtros" rows={[
+          ['Passa-baixa', 'Ativo – 2.500 Hz'], ['Passa-alta', '0,50 Hz'],
+          ['Notch 60 Hz', 'Ativo'], ['Tipo', 'IIR Butterworth'],
+        ]} />
+
         <div className="panel" style={{ flex: 1 }}>
           <div className="panel__head">Limpeza de Dados</div>
           <div className="panel__body checklist">
             {['Remover duplicatas', 'Preencher dados faltantes', 'Remover outliers Hampel', 'Limitar faixa permitida'].map((item, i) => (
-              <label key={item}><input type="checkbox" defaultChecked={i < 3} />{item}</label>
+              <label key={item}>
+                <input type="checkbox" checked={cleanOpts[i]} onChange={e => setCleanOpts(opts => opts.map((v, j) => j === i ? e.target.checked : v))} />{item}
+              </label>
             ))}
+            <button className="btn btn-primary btn-sm" style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
+              disabled={!loaded}
+              onClick={() => alert('Limpeza aplicada com sucesso!')}>
+              Aplicar Limpeza
+            </button>
           </div>
         </div>
       </aside>

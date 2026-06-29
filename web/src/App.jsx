@@ -3,24 +3,20 @@ import Dashboard from './tabs/Dashboard'
 import Dados from './tabs/Dados'
 import Medidas from './tabs/Medidas'
 import Circuitos from './tabs/Circuitos'
-import Simulacao from './tabs/Simulacao'
-import Fasores from './tabs/Fasores'
 import QualidadeEnergia from './tabs/QualidadeEnergia'
 import EnergiaDemandaFP from './tabs/EnergiaDemandaFP'
 import Metrologia from './tabs/Metrologia'
 import Relatorios from './tabs/Relatorios'
 
 const TABS = [
-  { id: 'dashboard',   label: 'Dashboard',                  Component: Dashboard },
-  { id: 'dados',       label: 'Dados',                       Component: Dados },
-  { id: 'medidas',     label: 'Medidas e Instrumentos',      Component: Medidas },
-  { id: 'circuitos',   label: 'Circuitos e Editor',          Component: Circuitos },
-  { id: 'simulacao',   label: 'Simulação',                   Component: Simulacao },
-  { id: 'fasores',     label: 'Fasores / Trifásico',         Component: Fasores },
-  { id: 'qualidade',   label: 'Qualidade de Energia',        Component: QualidadeEnergia },
-  { id: 'energia',     label: 'Energia, Demanda e FP',       Component: EnergiaDemandaFP },
-  { id: 'metrologia',  label: 'Metrologia, TC/TP e Segurança', Component: Metrologia },
-  { id: 'relatorios',  label: 'Relatórios',                  Component: Relatorios },
+  { id: 'dashboard',  icon: '▣', label: 'Dashboard',              Component: Dashboard },
+  { id: 'dados',      icon: '⊕', label: 'Dados',                  Component: Dados },
+  { id: 'medidas',    icon: '◈', label: 'Medidas',                Component: Medidas },
+  { id: 'circuitos',  icon: '⚡', label: 'Circuitos e Simulação',  Component: Circuitos },
+  { id: 'qualidade',  icon: '≈', label: 'Qualidade de Energia',   Component: QualidadeEnergia },
+  { id: 'energia',    icon: '◎', label: 'Energia e Demanda',      Component: EnergiaDemandaFP },
+  { id: 'metrologia', icon: '⊗', label: 'Metrologia e Segurança', Component: Metrologia },
+  { id: 'relatorios', icon: '≡', label: 'Relatórios',             Component: Relatorios },
 ]
 
 export default function App() {
@@ -51,13 +47,13 @@ export default function App() {
               className={`tab-btn${active === t.id ? ' active' : ''}`}
               onClick={() => setActive(t.id)}
             >
-              {t.label}
+              <i className="tab-icon">{t.icon}</i>{t.label}
             </button>
           ))}
         </nav>
 
         <div className="tab-content" style={{ flex: 1 }}>
-          <ActiveComponent />
+          <ActiveComponent onNavigate={setActive} />
         </div>
       </div>
 
