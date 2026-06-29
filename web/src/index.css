@@ -1233,3 +1233,58 @@ body, button, input, select, textarea,
     min-height: 280px;
   }
 }
+
+/* Incremental circuit load simulator */
+.sim-form-grid {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.sim-form-grid > .btn,
+.sim-form-grid > .info-note {
+  grid-column: 1 / -1;
+}
+
+.sim-field-pair {
+  display: contents;
+}
+
+.sim-segmented {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.sim-segmented .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.sim-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .sim-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sim-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sim-field-pair {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 620px) {
+  .sim-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
