@@ -158,7 +158,7 @@ classdef SMQEApp < handle
         end
 
         function createUI(app)
-            app.UIFigure = uifigure('Name','Plataforma de Medidas, Medição e Qualidade de Energia', ...
+            app.UIFigure = uifigure('Name','PLATAFORMA DE MEDIDAS, MEDIÇÃO E QUALIDADE DE ENERGIA - MATLAB APP', ...
                 'Position',[50 30 1680 970], 'Color',[1 1 1]);
             iconFile = app.iconFile();
             if exist(iconFile,'file')
@@ -390,23 +390,25 @@ classdef SMQEApp < handle
         end
 
         function createBottomPanel(app)
-            g = uigridlayout(app.BottomPanel,[1 5]);
-            g.ColumnWidth = {150,'1x',250,200,80};
+            g = uigridlayout(app.BottomPanel,[1 6]);
+            g.ColumnWidth = {118,230,210,'1x',150,38};
             g.Padding = [10 0 10 0];
             g.ColumnSpacing = 0;
             c = [0.10 0.16 0.26]; fc = [0.70 0.82 1.0];
             app.StatusLabel = uilabel(g,'Text','● Conectado',...
                 'FontColor',[0.20 0.88 0.42],'FontWeight','bold','FontSize',9,...
                 'BackgroundColor',c);
-            uilabel(g,'Text','Fonte: PQa-5000 #12345  |  Base: QE_DB_Local',...
+            uilabel(g,'Text','Fonte: PQA-5000 #12345',...
                 'FontColor',fc,'FontSize',9,'BackgroundColor',c);
-            uilabel(g,'Text','● Sincronizado  |  Taxa: 12,8 kS/s',...
-                'FontColor',[0.20 0.88 0.42],'FontSize',9,'BackgroundColor',c,...
-                'HorizontalAlignment','center');
-            uilabel(g,'Text','Usuário: engenheiro  |  Administrador',...
+            uilabel(g,'Text','Base: QE_DB_Local',...
+                'FontColor',fc,'FontSize',9,'BackgroundColor',c);
+            uilabel(g,'Text','Usuário: engenheiro',...
                 'FontColor',fc,'FontSize',9,'BackgroundColor',c,'HorizontalAlignment','right');
-            uilabel(g,'Text','Versão 1.2.0',...
+            uilabel(g,'Text','Versão: 1.2.0',...
                 'FontColor',fc,'FontSize',9,'BackgroundColor',c,'HorizontalAlignment','right');
+            uilabel(g,'Text','?',...
+                'FontColor',[1 1 1],'FontWeight','bold','FontSize',10,...
+                'BackgroundColor',c,'HorizontalAlignment','center');
         end
 
         function createTabs(app)
@@ -899,47 +901,151 @@ classdef SMQEApp < handle
 
         function createCircuitosEditorTab(app)
             tab = uitab(app.TabGroup,'Title','Circuitos e Editor');
-            shell = uigridlayout(tab,[1 1]); shell.Padding=[0 0 0 0];
-            sub = uitabgroup(shell);
+            root = uigridlayout(tab,[3 3]);
+            root.RowHeight = {44,'1x',176};
+            root.ColumnWidth = {232,'1x',344};
+            root.Padding = [8 6 8 6];
+            root.RowSpacing = 6;
+            root.ColumnSpacing = 6;
 
-            esquemas = uitab(sub,'Title','Esquemas de medição');
-            g1 = uigridlayout(esquemas,[2 2]); g1.RowHeight={'1x','1x'}; g1.ColumnWidth={'1x','1x'}; g1.Padding=[8 8 8 8];
-            titles={'Medição monofásica','Medição trifásica','TC / TP','Analisador de qualidade'};
-            for i=1:4
-                ax = uiaxes(g1); title(ax,titles{i}); axis(ax,'off');
-                switch i
-                    case 1, app.desenharMonofasico(ax);
-                    case 2, app.desenharTrifasico(ax);
-                    case 3, app.desenharTCTP(ax);
-                    case 4, app.desenharAnalisador(ax);
-                end
+            toolbar = uipanel(root,'BorderType','none','BackgroundColor',[0.96 0.97 0.99]);
+            toolbar.Layout.Row = 1;
+            toolbar.Layout.Column = [1 3];
+            tb = uigridlayout(toolbar,[1 10]);
+            tb.ColumnWidth = {230,98,98,110,110,124,'1x',106,106,118};
+            tb.Padding = [8 5 8 5];
+            tb.ColumnSpacing = 6;
+            uilabel(tb,'Text','Editor de Circuitos de Medição',...
+                'FontSize',12,'FontWeight','bold','FontColor',[0.06 0.20 0.38]);
+            uibutton(tb,'push','Text','Novo','FontSize',9,'ButtonPushedFcn',@(~,~)app.clearCircuit());
+            uibutton(tb,'push','Text','Demo','FontSize',9,'ButtonPushedFcn',@(~,~)app.loadDemoCircuit());
+            uibutton(tb,'push','Text','Ligar','FontSize',9,'ButtonPushedFcn',@(~,~)app.addWire());
+            uibutton(tb,'push','Text','Simular','FontSize',9,...
+                'BackgroundColor',[0.07 0.40 0.72],'FontColor',[1 1 1],...
+                'ButtonPushedFcn',@(~,~)app.simularCircuito());
+            uibutton(tb,'push','Text','Exportar PNG','FontSize',9,...
+                'ButtonPushedFcn',@(~,~)app.exportarGrafico(app.CircuitAxes));
+            uilabel(tb,'Text','');
+            uibutton(tb,'push','Text','Abrir CSV','FontSize',9,'ButtonPushedFcn',@(~,~)app.loadCircuitCSV());
+            uibutton(tb,'push','Text','Salvar CSV','FontSize',9,'ButtonPushedFcn',@(~,~)app.saveCircuitCSV());
+            uidropdown(tb,'Items',{'Grade 1 m','Grade 0,5 m','Sem grade'},'FontSize',9);
+
+            tools = uipanel(root,'Title','Biblioteca de Componentes','FontWeight','bold','FontSize',9,...
+                'ForegroundColor',[0.06 0.20 0.38],'BackgroundColor',[0.97 0.98 1.00]);
+            tools.Layout.Row = [2 3];
+            tools.Layout.Column = 1;
+            tg = uigridlayout(tools,[17 1]);
+            tg.RowHeight = {24,28,28,28,8,22,22,22,22,22,22,22,22,22,22,'1x',42};
+            tg.Padding = [7 6 7 6];
+            tg.RowSpacing = 3;
+            app.ComponentDrop = uidropdown(tg,'Items',{'Fonte CA','Fonte CC','Resistor','Indutor','Capacitor','Motor','Carga não linear','Voltímetro','Amperímetro','Wattímetro','Medidor kWh','TC','TP','Terra'},'FontSize',8.5);
+            uibutton(tg,'push','Text','+ Adicionar ao Canvas','FontSize',9,...
+                'BackgroundColor',[0.07 0.40 0.72],'FontColor',[1 1 1],...
+                'ButtonPushedFcn',@(~,~)app.addComponent());
+            uibutton(tg,'push','Text','Excluir Selecionado','FontSize',9,'ButtonPushedFcn',@(~,~)app.deleteSelectedComponent());
+            uibutton(tg,'push','Text','Atualizar Desenho','FontSize',9,'ButtonPushedFcn',@(~,~)app.redrawCircuit());
+            uilabel(tg,'Text','');
+            palette = {'Fonte CA','Resistor','Indutor','Capacitor','Motor','Carga não linear',...
+                'Voltímetro','Amperímetro','Wattímetro','Medidor kWh'};
+            for i=1:numel(palette)
+                uilabel(tg,'Text',['  ' palette{i}],'FontSize',8.5,...
+                    'FontColor',[0.12 0.26 0.44],'BackgroundColor',[0.93 0.96 1.00]);
             end
+            uilabel(tg,'Text','Arraste mentalmente a topologia: selecione o componente, adicione e edite X/Y na tabela.',...
+                'WordWrap','on','FontSize',8.5,'FontColor',[0.35 0.45 0.58]);
 
-            editor = uitab(sub,'Title','Editor didático');
-            g = uigridlayout(editor,[1 3]); g.ColumnWidth={210,'1x',330}; g.Padding=[8 8 8 8];
-            tools = uipanel(g,'Title','Componentes','FontWeight','bold');
-            tg = uigridlayout(tools,[12 1]); tg.RowHeight = {28,30,30,30,30,30,30,30,30,30,30,'1x'}; tg.Padding=[8 8 8 8];
-            app.ComponentDrop = uidropdown(tg,'Items',{'Fonte CA','Fonte CC','Resistor','Indutor','Capacitor','Motor','Carga não linear','Voltímetro','Amperímetro','Wattímetro','Medidor kWh','TC','TP','Terra'});
-            uibutton(tg,'Text','Adicionar','ButtonPushedFcn',@(~,~)app.addComponent());
-            uibutton(tg,'Text','Ligar selecionados','ButtonPushedFcn',@(~,~)app.addWire());
-            uibutton(tg,'Text','Excluir selecionado','ButtonPushedFcn',@(~,~)app.deleteSelectedComponent());
-            uibutton(tg,'Text','Limpar desenho','ButtonPushedFcn',@(~,~)app.clearCircuit());
-            uibutton(tg,'Text','Carregar demo','ButtonPushedFcn',@(~,~)app.loadDemoCircuit());
-            uibutton(tg,'Text','Salvar circuito CSV','ButtonPushedFcn',@(~,~)app.saveCircuitCSV());
-            uibutton(tg,'Text','Abrir circuito CSV','ButtonPushedFcn',@(~,~)app.loadCircuitCSV());
-            uibutton(tg,'Text','Simular','ButtonPushedFcn',@(~,~)app.simularCircuito());
-            uibutton(tg,'Text','Exportar desenho','ButtonPushedFcn',@(~,~)app.exportarGrafico(app.CircuitAxes));
-            uilabel(tg,'Text','Arraste os blocos dentro da área. Edite valores na tabela.','WordWrap','on');
-
-            app.CircuitAxes = uiaxes(g); title(app.CircuitAxes,'Área de desenho do circuito');
-            axis(app.CircuitAxes,[0 10 0 6]); grid(app.CircuitAxes,'on'); app.CircuitAxes.XTick=0:1:10; app.CircuitAxes.YTick=0:1:6; hold(app.CircuitAxes,'on');
+            canvasP = uipanel(root,'Title','Canvas do Circuito','FontWeight','bold','FontSize',9,...
+                'ForegroundColor',[0.06 0.20 0.38]);
+            canvasP.Layout.Row = 2;
+            canvasP.Layout.Column = 2;
+            canvasG = uigridlayout(canvasP,[1 1]);
+            canvasG.Padding = [4 4 4 4];
+            app.CircuitAxes = uiaxes(canvasG);
+            title(app.CircuitAxes,'Área de desenho do circuito');
+            axis(app.CircuitAxes,[0 10 0 6]);
+            grid(app.CircuitAxes,'on');
+            app.CircuitAxes.XTick = 0:1:10;
+            app.CircuitAxes.YTick = 0:1:6;
+            hold(app.CircuitAxes,'on');
             app.CircuitAxes.ButtonDownFcn = @(src,evt) app.stopSelect();
 
-            right = uipanel(g,'Title','Valores dos componentes','FontWeight','bold');
-            rg = uigridlayout(right,[3 1]); rg.RowHeight={'1x',36,36}; rg.Padding=[6 6 6 6];
-            app.ComponentTable = uitable(rg,'ColumnEditable',[false false true true false true true], 'CellEditCallback',@(~,~)app.redrawCircuit());
-            uibutton(rg,'Text','Atualizar desenho','ButtonPushedFcn',@(~,~)app.redrawCircuit());
-            uibutton(rg,'Text','Enviar para Simulação','ButtonPushedFcn',@(~,~)app.simularCircuito());
+            bottom = uipanel(root,'BorderType','none');
+            bottom.Layout.Row = 3;
+            bottom.Layout.Column = 2;
+            bg = uigridlayout(bottom,[1 3]);
+            bg.ColumnWidth = {'1x',260,260};
+            bg.Padding = [0 0 0 0];
+            bg.ColumnSpacing = 6;
+            netP = uipanel(bg,'Title','Netlist / Conexões','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            netG = uigridlayout(netP,[1 1]); netG.Padding = [4 4 4 4];
+            uitable(netG,'FontSize',8,'ColumnName',{'De','Para','Tipo'},'RowName',{},...
+                'Data',{'F1','R2','Condutor';'R2','M3','Condutor';'TC4','PQA5','Sinal';'TP6','PQA5','Tensão'});
+            msgP = uipanel(bg,'Title','Mensagens do Editor','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            msgG = uigridlayout(msgP,[1 1]); msgG.Padding = [4 4 4 4];
+            uitextarea(msgG,'Editable','off','FontSize',8.5,'Value',{...
+                'OK - Grade alinhada e canvas pronto.',...
+                'Dica - conecte TC/TP antes do analisador.',...
+                'Aviso - nunca deixe secundário de TC aberto.'});
+            uniP = uipanel(bg,'Title','Unifilar Didático','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            uniG = uigridlayout(uniP,[1 1]); uniG.Padding = [4 4 4 4];
+            axUni = uiaxes(uniG);
+            try, app.desenharTrifasico(axUni); catch, axis(axUni,'off'); end
+
+            right = uipanel(root,'Title','Propriedades e Componentes','FontWeight','bold','FontSize',9,...
+                'ForegroundColor',[0.06 0.20 0.38]);
+            right.Layout.Row = [2 3];
+            right.Layout.Column = 3;
+            rg = uigridlayout(right,[5 1]);
+            rg.RowHeight = {'1x',74,106,112,42};
+            rg.Padding = [6 6 6 6];
+            rg.RowSpacing = 5;
+            app.ComponentTable = uitable(rg,'ColumnEditable',[false false true true false true true],...
+                'CellEditCallback',@(~,~)app.redrawCircuit(),'FontSize',8,...
+                'ColumnName',{'ID','Tipo','Nome','Valor','Unidade','X','Y'});
+
+            cfgP = uipanel(rg,'Title','Configuração da Simulação','FontWeight','bold','FontSize',8.5);
+            cfgG = uigridlayout(cfgP,[2 4]);
+            cfgG.Padding = [5 4 5 4];
+            cfgG.RowHeight = {24,24};
+            cfgG.ColumnWidth = {70,'1x',70,'1x'};
+            uilabel(cfgG,'Text','Frequência:','FontSize',8.5);
+            uieditfield(cfgG,'numeric','Value',60,'FontSize',8.5);
+            uilabel(cfgG,'Text','Base V:','FontSize',8.5);
+            uieditfield(cfgG,'numeric','Value',220,'FontSize',8.5);
+            uilabel(cfgG,'Text','Sistema:','FontSize',8.5);
+            uidropdown(cfgG,'Items',{'3F + N','Monofásico','Bifásico'},'FontSize',8.5);
+            uilabel(cfgG,'Text','Amostra:','FontSize',8.5);
+            uidropdown(cfgG,'Items',{'10 ciclos','1 ciclo','1 s'},'FontSize',8.5);
+
+            propP = uipanel(rg,'Title','Propriedades do Elemento','FontWeight','bold','FontSize',8.5);
+            propG = uigridlayout(propP,[4 2]);
+            propG.Padding = [5 4 5 4];
+            propG.RowHeight = {22,22,22,22};
+            propLabels = {'Nome:','Valor nominal:','Unidade:','Observação:'};
+            propVals = {'F1','220','V','Fonte de alimentação'};
+            for i=1:4
+                uilabel(propG,'Text',propLabels{i},'FontSize',8.5,'FontWeight','bold');
+                uieditfield(propG,'text','Value',propVals{i},'FontSize',8.5);
+            end
+
+            safeP = uipanel(rg,'Title','Validação / Segurança','FontWeight','bold','FontSize',8.5);
+            safeG = uigridlayout(safeP,[4 2]);
+            safeG.Padding = [5 4 5 4];
+            safeG.RowHeight = {22,22,22,22};
+            checks = {'TC fechado','Aterramento','CAT compatível','Polaridade TC/TP',...
+                'Disjuntor aberto','EPI obrigatório','Fase identificada','Sem curto'};
+            for i=1:numel(checks)
+                uicheckbox(safeG,'Text',checks{i},'Value',i~=5,'FontSize',8);
+            end
+
+            actG = uigridlayout(rg,[1 2]);
+            actG.Padding = [0 0 0 0];
+            actG.ColumnWidth = {'1x','1x'};
+            uibutton(actG,'push','Text','Atualizar','FontSize',9,'ButtonPushedFcn',@(~,~)app.redrawCircuit());
+            uibutton(actG,'push','Text','Enviar para Simulação','FontSize',9,...
+                'BackgroundColor',[0.07 0.40 0.72],'FontColor',[1 1 1],...
+                'ButtonPushedFcn',@(~,~)app.simularCircuito());
+            try, app.redrawCircuit(); catch, end
         end
 
         function createAnalysisPane(app,parent,k,titleText,buttonText)
@@ -1120,100 +1226,145 @@ classdef SMQEApp < handle
         function createMetrologiaTCTPSegurancaTab(app)
             app.ensureAnalysisStorage();
             tab = uitab(app.TabGroup,'Title','Metrologia, TC/TP e Segurança');
-            shell = uigridlayout(tab,[1 1]); shell.Padding=[0 0 0 0];
-            sub = uitabgroup(shell);
+            root = uigridlayout(tab,[4 1]);
+            root.RowHeight = {44,84,'1x',176};
+            root.Padding = [8 6 8 6];
+            root.RowSpacing = 6;
 
-            % ── Sub-aba: Metrologia ──
-            met = uitab(sub,'Title','Metrologia');
-            gm = uigridlayout(met,[2 2]); gm.RowHeight={'1x',160}; gm.ColumnWidth={'1x',400}; gm.Padding=[8 8 8 8]; gm.ColumnSpacing=6; gm.RowSpacing=5;
-            orcP = uipanel(gm,'Title','Orçamento de Incerteza (GUM:2008)','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
-            orcP.Layout.Row=1; orcP.Layout.Column=1;
-            orcG = uigridlayout(orcP,[1 1]); orcG.Padding=[4 4 4 4];
+            bar = uipanel(root,'BorderType','none','BackgroundColor',[0.96 0.97 0.99]);
+            bg = uigridlayout(bar,[1 9]);
+            bg.ColumnWidth = {246,150,150,138,138,'1x',100,112,112};
+            bg.Padding = [8 5 8 5];
+            bg.ColumnSpacing = 6;
+            uilabel(bg,'Text','Metrologia, TC/TP e Segurança',...
+                'FontSize',12,'FontWeight','bold','FontColor',[0.06 0.20 0.38]);
+            uidropdown(bg,'Items',{'PQA-5000 #12345','PMU-120 #01','TC #07','TP #04'},'FontSize',9);
+            uidropdown(bg,'Items',{'PRODIST Módulo 8','IEC 61000','IEEE 519','NR-10'},'FontSize',9);
+            uidropdown(bg,'Items',{'Última calibração','30 dias','12 meses'},'FontSize',9);
+            uidropdown(bg,'Items',{'Todas as fases','Fase A','Fase B','Fase C'},'FontSize',9);
+            uilabel(bg,'Text','');
+            uibutton(bg,'push','Text','Calcular','FontSize',9,...
+                'BackgroundColor',[0.07 0.40 0.72],'FontColor',[1 1 1],...
+                'ButtonPushedFcn',@(~,~)app.refreshAll());
+            uibutton(bg,'push','Text','Checklist','FontSize',9,'ButtonPushedFcn',@(~,~)app.refreshAll());
+            uibutton(bg,'push','Text','Relatório','FontSize',9,'ButtonPushedFcn',@(~,~)app.gerarRelatorio());
+
+            kpiP = uipanel(root,'BorderType','none','BackgroundColor',[1 1 1]);
+            kg = uigridlayout(kpiP,[1 6]);
+            kg.ColumnWidth = repmat({'1x'},1,6);
+            kg.Padding = [0 2 0 2];
+            kg.ColumnSpacing = 6;
+            kNames = {'Incerteza Expandida','Classe TC','Classe TP','Calibração','Risco NR-10','Conformidade'};
+            kVals = {'0,356 %','0,3','0,3','Válida','Controlado','98,2 %'};
+            kBg = {[0.94 0.97 1.00],[0.98 0.95 1.00],[0.98 0.95 1.00],...
+                [0.94 1.00 0.96],[1.00 0.97 0.92],[0.94 1.00 0.94]};
+            kFc = {[0.06 0.40 0.72],[0.55 0.16 0.68],[0.55 0.16 0.68],...
+                [0.04 0.50 0.24],[0.86 0.38 0.06],[0.12 0.54 0.20]};
+            for i=1:6
+                card = uipanel(kg,'BackgroundColor',kBg{i},'BorderType','line');
+                cg = uigridlayout(card,[2 1]);
+                cg.RowHeight = {20,'1x'};
+                cg.Padding = [5 3 5 3];
+                cg.RowSpacing = 0;
+                uilabel(cg,'Text',kNames{i},'FontSize',8,'FontWeight','bold','FontColor',[0.22 0.32 0.46]);
+                uilabel(cg,'Text',kVals{i},'FontSize',14,'FontWeight','bold','FontColor',kFc{i});
+            end
+
+            main = uipanel(root,'BorderType','none');
+            mg = uigridlayout(main,[2 3]);
+            mg.RowHeight = {'1x','1x'};
+            mg.ColumnWidth = {'1x','1x',360};
+            mg.Padding = [0 0 0 0];
+            mg.RowSpacing = 6;
+            mg.ColumnSpacing = 6;
+
+            orcP = uipanel(mg,'Title','Orçamento de Incerteza (GUM:2008)','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            orcP.Layout.Row = 1;
+            orcP.Layout.Column = 1;
+            orcG = uigridlayout(orcP,[1 1]);
+            orcG.Padding = [4 4 4 4];
             uitable(orcG,'Data',{'Calibração do instrumento','0,10%','B','Normal','3','0,06';...
                 'Resolução (quantização)','0,05%','B','Retangular','2','0,03';...
                 'Variação de temperatura','0,08%','B','Normal','2','0,06';...
                 'Repetibilidade (Tipo A)','0,12%','A','Experimental','5','0,12';...
                 'Estabilidade de longo prazo','0,05%','B','Normal','3','0,03';...
-                '— Incerteza Combinada uc —','0,178%','','','','';...
-                '— Incerteza Expandida U (k=2) —','0,356%','','','',''},...
-                'ColumnName',{'Componente de Incerteza','ui','Tipo','Distribuição','ν','ci·ui'},'RowName',{},'FontSize',8);
-            axm = uiaxes(gm); axm.Layout.Row=1; axm.Layout.Column=2;
-            title(axm,'Curva de Erro e Repetibilidade (%)');
-            app.MetrologyTable = uitable(gm,'FontSize',8,'Data',app.metrologiaData());
-            app.MetrologyTable.Layout.Row=2; app.MetrologyTable.Layout.Column=1;
-            calP = uipanel(gm,'Title','Histórico de Calibração','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
-            calP.Layout.Row=2; calP.Layout.Column=2;
-            calG = uigridlayout(calP,[1 1]); calG.Padding=[4 4 4 4];
-            uitable(calG,'Data',{'PQA-5000 #12345','Tensão','28/02/2024','28/02/2025','0,18%','Calibrado';...
-                'PQA-5000 #12345','Corrente','28/02/2024','28/02/2025','0,22%','Calibrado';...
-                'PMU-120 #01','Sincrofasor','15/01/2024','15/01/2025','0,12%','Calibrado';...
-                'TC #07 5A/5A','Relação','10/03/2024','10/03/2025','0,08%','Calibrado'},...
-                'ColumnName',{'Instrumento','Grandeza','Data Cal.','Próx. Cal.','Erro Max.','Status'},'RowName',{},'FontSize',8);
-            try, app.plotMetrologia(axm); catch, end
+                'Incerteza Combinada uc','0,178%','','','','';...
+                'Incerteza Expandida U (k=2)','0,356%','','','',''},...
+                'ColumnName',{'Componente','ui','Tipo','Distribuição','v','ci.ui'},'RowName',{},'FontSize',8);
 
-            % ── Sub-aba: TC/TP ──
-            tctp = uitab(sub,'Title','TC / TP');
-            gt = uigridlayout(tctp,[2 3]); gt.RowHeight={'1x',140}; gt.ColumnWidth={'1x','1x','1x'}; gt.Padding=[8 8 8 8]; gt.ColumnSpacing=6; gt.RowSpacing=5;
-            tcP = uipanel(gt,'Title','Especificações do TC','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
-            tcP.Layout.Row=1; tcP.Layout.Column=1;
-            tcG_ = uigridlayout(tcP,[6 2]); tcG_.Padding=[6 6 6 6]; tcG_.RowHeight=repmat({26},1,6);
-            tcLabels = {'Relação Nominal:','Classe de Exatidão:','Carga Nominal (VA):','Corrente Primária:','Corrente Secundária:','Fator de Sobrecarga:'};
-            tcVals   = {'5000/5 A (1000:1)','Classe 0,3','25 VA','5000 A','5 A','1,2×'};
+            metP = uipanel(mg,'Title','Curva de Erro e Repetibilidade','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            metP.Layout.Row = 1;
+            metP.Layout.Column = 2;
+            metG = uigridlayout(metP,[1 1]);
+            metG.Padding = [4 4 4 4];
+            axm = uiaxes(metG);
+            title(axm,'Curva de Erro e Repetibilidade (%)');
+
+            specP = uipanel(mg,'Title','Especificações TC / TP','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            specP.Layout.Row = 1;
+            specP.Layout.Column = 3;
+            specG = uigridlayout(specP,[6 4]);
+            specG.Padding = [6 5 6 5];
+            specG.RowHeight = repmat({24},1,6);
+            specG.ColumnWidth = {82,'1x',82,'1x'};
+            tcLabels = {'Relação:','Classe:','Carga:','Primária:','Secundária:','FS:'};
+            tcVals = {'5000/5 A','0,3','25 VA','5000 A','5 A','1,2x'};
+            tpLabels = {'Relação:','Classe:','Carga:','Primária:','Secundária:','FT:'};
+            tpVals = {'13800/115 V','0,3','50 VA','13,8 kV','115 V','1,2x'};
             for i=1:6
-                uilabel(tcG_,'Text',tcLabels{i},'FontSize',9,'FontWeight','bold');
-                uilabel(tcG_,'Text',tcVals{i},'FontSize',9,'FontColor',[0.06 0.40 0.72]);
+                uilabel(specG,'Text',['TC ' tcLabels{i}],'FontSize',8.2,'FontWeight','bold');
+                uilabel(specG,'Text',tcVals{i},'FontSize',8.2,'FontColor',[0.06 0.40 0.72]);
+                uilabel(specG,'Text',['TP ' tpLabels{i}],'FontSize',8.2,'FontWeight','bold');
+                uilabel(specG,'Text',tpVals{i},'FontSize',8.2,'FontColor',[0.55 0.16 0.68]);
             end
-            tpP = uipanel(gt,'Title','Especificações do TP','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
-            tpP.Layout.Row=1; tpP.Layout.Column=2;
-            tpG_ = uigridlayout(tpP,[6 2]); tpG_.Padding=[6 6 6 6]; tpG_.RowHeight=repmat({26},1,6);
-            tpLabels = {'Relação Nominal:','Classe de Exatidão:','Carga Nominal (VA):','Tensão Primária:','Tensão Secundária:','Fator de Tensão:'};
-            tpVals   = {'13800/115 V (120:1)','Classe 0,3','50 VA','13.800 V','115 V','1,2×'};
-            for i=1:6
-                uilabel(tpG_,'Text',tpLabels{i},'FontSize',9,'FontWeight','bold');
-                uilabel(tpG_,'Text',tpVals{i},'FontSize',9,'FontColor',[0.55 0.16 0.68]);
-            end
-            app.AnalysisAxes{6} = uiaxes(gt); app.AnalysisAxes{6}.Layout.Row=1; app.AnalysisAxes{6}.Layout.Column=3;
-            title(app.AnalysisAxes{6},'Curva de Erro TC / TP (%)');
-            tctpTbl = uitable(gt,'FontSize',8,...
+
+            tctpP = uipanel(mg,'Title','Curva de Erro TC / TP','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            tctpP.Layout.Row = 2;
+            tctpP.Layout.Column = 1;
+            tctpG = uigridlayout(tctpP,[1 1]);
+            tctpG.Padding = [4 4 4 4];
+            app.AnalysisAxes{6} = uiaxes(tctpG);
+
+            scopeP = uipanel(mg,'Title','Osciloscópio Virtual','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            scopeP.Layout.Row = 2;
+            scopeP.Layout.Column = 2;
+            scopeG = uigridlayout(scopeP,[1 1]);
+            scopeG.Padding = [4 4 4 4];
+            app.AnalysisAxes{7} = uiaxes(scopeG);
+
+            safetyP = uipanel(mg,'Title','Segurança em Medições','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
+            safetyP.Layout.Row = 2;
+            safetyP.Layout.Column = 3;
+            safetyG = uigridlayout(safetyP,[1 1]);
+            safetyG.Padding = [4 4 4 4];
+            ax2 = uiaxes(safetyG);
+            axis(ax2,'off');
+            title(ax2,'Diagrama de Segurança em Medições');
+            try, app.desenharSeguranca(ax2); catch, end
+
+            bottom = uipanel(root,'BorderType','none');
+            bt = uigridlayout(bottom,[1 4]);
+            bt.ColumnWidth = {'1x','1x','1x',300};
+            bt.Padding = [0 0 0 0];
+            bt.ColumnSpacing = 6;
+            app.MetrologyTable = uitable(bt,'FontSize',8,'Data',app.metrologiaData(),...
+                'ColumnName',{'Grandeza','Valor','Unidade'},'RowName',{});
+            app.AnalysisTables{6} = uitable(bt,'FontSize',8,...
                 'Data',{'TC #07','Fase A','0,08%','-0,12°','0,3','25 VA','Conforme';...
                     'TC #08','Fase B','0,11%','-0,09°','0,3','25 VA','Conforme';...
                     'TC #09','Fase C','0,07%','-0,14°','0,3','25 VA','Conforme';...
                     'TP #04','Fase A','0,06%','-0,10°','0,3','50 VA','Conforme';...
                     'TP #05','Fase B','0,09%','-0,08°','0,3','50 VA','Conforme'},...
-                'ColumnName',{'Instrumento','Fase','Erro Rel.','Erro de Fase','Classe','Carga','Status'},...
-                'RowName',{});
-            tctpTbl.Layout.Row=2; tctpTbl.Layout.Column=[1 3];
+                'ColumnName',{'Instrumento','Fase','Erro Rel.','Erro Fase','Classe','Carga','Status'},'RowName',{});
+            app.AnalysisTables{7} = uitable(bt,'FontSize',8,...
+                'Data',{'Tensão pico','311','V';'Corrente pico','177','A';'Defasagem','23','graus';'Janela','10','ciclos'},...
+                'ColumnName',{'Indicador','Valor','Unidade'},'RowName',{});
+            app.SafetyTable = uitable(bt,'FontSize',8,'Data',app.segurancaData(),...
+                'ColumnName',{'Item','Status','Observação'},'RowName',{});
+
+            try, app.plotMetrologia(axm); catch, end
             try, app.plotAnalise(6); catch, end
-
-            % ── Sub-aba: Osciloscópio ──
-            app.createAnalysisPane(uitab(sub,'Title','Osciloscópio'),7,'Osciloscópio virtual e aquisição em tempo real','Gerar aquisição');
-
-            % ── Sub-aba: Segurança ──
-            seg = uitab(sub,'Title','Segurança e LOTO');
-            gs = uigridlayout(seg,[2 3]); gs.RowHeight={'1x',130}; gs.ColumnWidth={'1x','1x','1x'}; gs.Padding=[8 8 8 8]; gs.ColumnSpacing=6; gs.RowSpacing=5;
-            ax2 = uiaxes(gs); ax2.Layout.Row=1; ax2.Layout.Column=1;
-            axis(ax2,'off'); title(ax2,'Diagrama de Segurança em Medições');
-            try, app.desenharSeguranca(ax2); catch, end
-            app.SafetyTable = uitable(gs,'FontSize',8,'Data',app.segurancaData());
-            app.SafetyTable.Layout.Row=1; app.SafetyTable.Layout.Column=[2 3];
-            lotoP = uipanel(gs,'Title','Procedimento LOTO — Isolamento e Travamento','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
-            lotoP.Layout.Row=2; lotoP.Layout.Column=1;
-            loG = uigridlayout(lotoP,[3 2]); loG.Padding=[6 4 6 4];
-            loSteps = {'1. Notificar equipe','2. Identificar fontes de energia','3. Desligar fontes','4. Isolar energia (Lock)','5. Verificar isolamento','6. Executar e reativar'};
-            for i=1:6, uicheckbox(loG,'Text',loSteps{i},'Value',false,'FontSize',8.5); end
-            epiP = uipanel(gs,'Title','EPI Necessários','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
-            epiP.Layout.Row=2; epiP.Layout.Column=2;
-            epiG = uigridlayout(epiP,[3 2]); epiG.Padding=[6 4 6 4];
-            epis = {'Luvas Isolantes BT','Capacete Classe B','Óculos de Proteção','Botina Dielétrica','Avental de Arco Elétrico','Detector de Tensão'};
-            for i=1:6, uicheckbox(epiG,'Text',epis{i},'Value',true,'FontSize',8.5); end
-            riskP = uipanel(gs,'Title','Matriz de Risco','FontWeight','bold','FontSize',9,'ForegroundColor',[0.06 0.20 0.38]);
-            riskP.Layout.Row=2; riskP.Layout.Column=3;
-            rkG = uigridlayout(riskP,[1 1]); rkG.Padding=[4 4 4 4];
-            uitable(rkG,'Data',{'Contato elétrico','Alta','Alta','Extremo','LOTO obrigatório';...
-                'Arco elétrico','Média','Alta','Alto','EPI Nível 2';...
-                'Quedas','Baixa','Alta','Médio','Cinto de segurança';...
-                'Tensão de passo','Baixa','Média','Baixo','Sapatos dielétricos'},...
-                'ColumnName',{'Perigo','Probabilidade','Severidade','Risco','Controle'},'RowName',{},'FontSize',7.5);
+            try, app.plotAnalise(7); catch, end
         end
 
         function createRelatoriosTab(app)
@@ -2219,9 +2370,9 @@ classdef SMQEApp < handle
             end
         end
         function desenharMonofasico(app,ax), cla(ax); axis(ax,[0 10 0 5]); axis(ax,'off'); hold(ax,'on'); line(ax,[1 9],[4 4],'Color','r'); line(ax,[1 9],[1 1],'Color','k'); rectangle(ax,'Position',[7 2.5 1 1]); text(ax,7.5,3,'Carga','HorizontalAlignment','center'); rectangle(ax,'Position',[3.5 3.6 .8 .6]); text(ax,3.9,3.9,'kWh','HorizontalAlignment','center'); text(ax,1,4.2,'L'); text(ax,1,0.8,'N'); end
-        function desenharTrifasico(app,ax), cla(ax); axis(ax,[0 10 0 6]); axis(ax,'off'); hold(ax,'on'); cols={'r','b',[0 0.5 0],'k'}; ys=[5 4 3 2]; labs={'A','B','C','N'}; for i=1:4, line(ax,[1 9],[ys(i) ys(i)],'Color',cols{i},'LineWidth',1.5); text(ax,.7,ys(i),labs{i}); end; rectangle(ax,'Position',[7 2.6 1.2 2]); text(ax,7.6,3.6,'Carga 3F','HorizontalAlignment','center'); rectangle(ax,'Position',[3.5 2.4 1.2 2.4]); text(ax,4.1,3.6,'Medidor\n3F','HorizontalAlignment','center'); end
+        function desenharTrifasico(app,ax), cla(ax); axis(ax,[0 10 0 6]); axis(ax,'off'); hold(ax,'on'); cols={'r','b',[0 0.5 0],'k'}; ys=[5 4 3 2]; labs={'A','B','C','N'}; for i=1:4, line(ax,[1 9],[ys(i) ys(i)],'Color',cols{i},'LineWidth',1.5); text(ax,.7,ys(i),labs{i}); end; rectangle(ax,'Position',[7 2.6 1.2 2]); text(ax,7.6,3.6,'Carga 3F','HorizontalAlignment','center'); rectangle(ax,'Position',[3.5 2.4 1.2 2.4]); text(ax,4.1,3.6,{'Medidor','3F'},'HorizontalAlignment','center'); end
         function desenharTCTP(app,ax), cla(ax); axis(ax,[0 10 0 5]); axis(ax,'off'); hold(ax,'on'); line(ax,[1 9],[4 4]); rectangle(ax,'Position',[2.5 3.65 .5 .7],'Curvature',[1 1]); text(ax,2.75,4.45,'TC','HorizontalAlignment','center'); rectangle(ax,'Position',[5 3.2 1 1.2]); text(ax,5.5,3.8,'TP','HorizontalAlignment','center'); rectangle(ax,'Position',[7 2 1.2 1]); text(ax,7.6,2.5,'Medidor','HorizontalAlignment','center'); text(ax,1,4.3,'Fase'); text(ax,2.3,3.2,'Nunca abrir S1/S2','Color','r','FontWeight','bold'); end
-        function desenharAnalisador(app,ax), cla(ax); axis(ax,[0 10 0 5]); axis(ax,'off'); hold(ax,'on'); for i=1:3, line(ax,[1 8],[4.5-i*.8 4.5-i*.8],'LineWidth',1.2); end; rectangle(ax,'Position',[4 1.2 2 2]); text(ax,5,2.2,'Analisador\nPQ','HorizontalAlignment','center','FontWeight','bold'); for i=1:3, plot(ax,3,4.5-i*.8,'o','MarkerFaceColor','r'); line(ax,[3 4],[4.5-i*.8 2.8-i*.35],'LineStyle','--'); end; rectangle(ax,'Position',[8 2.2 1 1]); text(ax,8.5,2.7,'Carga','HorizontalAlignment','center'); end
+        function desenharAnalisador(app,ax), cla(ax); axis(ax,[0 10 0 5]); axis(ax,'off'); hold(ax,'on'); for i=1:3, line(ax,[1 8],[4.5-i*.8 4.5-i*.8],'LineWidth',1.2); end; rectangle(ax,'Position',[4 1.2 2 2]); text(ax,5,2.2,{'Analisador','PQ'},'HorizontalAlignment','center','FontWeight','bold'); for i=1:3, plot(ax,3,4.5-i*.8,'o','MarkerFaceColor','r'); line(ax,[3 4],[4.5-i*.8 2.8-i*.35],'LineStyle','--'); end; rectangle(ax,'Position',[8 2.2 1 1]); text(ax,8.5,2.7,'Carga','HorizontalAlignment','center'); end
         function desenharSeguranca(app,ax), cla(ax); axis(ax,[0 10 0 6]); axis(ax,'off'); hold(ax,'on'); txt={'CAT II/III/IV','EPI obrigatório','TC nunca aberto','Bloqueio/etiquetagem','Terra do osciloscópio','Conferir escala'}; for i=1:numel(txt), rectangle(ax,'Position',[1+mod(i-1,3)*3 4-floor((i-1)/3)*2 2.3 1],'FaceColor',[1 0.95 0.9],'EdgeColor',[0.7 0.1 0.1]); text(ax,2.15+mod(i-1,3)*3,4.5-floor((i-1)/3)*2,txt{i},'HorizontalAlignment','center','FontWeight','bold'); end; end
 
         function T=instrumentosData(app)
