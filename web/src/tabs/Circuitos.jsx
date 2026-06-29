@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react'
-import Simulacao from './Simulacao'
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 
@@ -169,6 +168,9 @@ function calcMonoPara(p) {
 
 const TRI_LOAD_TYPES = [
   { id:'R',   label:'Resistiva (R)',          color:'#1d4ed8', fields:['R'] },
+  { id:'L',   label:'Indutiva pura (L)',      color:'#dc2626', fields:['L'] },
+  { id:'C',   label:'Capacitiva pura (C)',    color:'#0284c7', fields:['C'] },
+  { id:'LC',  label:'LC',                     color:'#0f766e', fields:['L','C'] },
   { id:'RL',  label:'Indutiva (RL)',           color:'#9333ea', fields:['R','L'] },
   { id:'RC',  label:'Capacitiva (RC)',         color:'#0284c7', fields:['R','C'] },
   { id:'RLC', label:'RLC',                    color:'#d97706', fields:['R','L','C'] },
@@ -197,6 +199,9 @@ function phaseZ(lt, vals, f, VL) {
   const XC = Cv > 0 ? 1/(2*Math.PI*f*Cv) : 0
 
   if (lt === 'R')   return [R || 1, 0]
+  if (lt === 'L')   return [0.001, XL || 1]
+  if (lt === 'C')   return [0.001, -(XC || 1e6)]
+  if (lt === 'LC')  return [0.001, XL - (XC || 0)]
   if (lt === 'RL')  return [R, XL]
   if (lt === 'RC')  return [R, -XC]
   if (lt === 'RLC') return [R, XL - XC]
@@ -1142,7 +1147,7 @@ function TriPhasor3F({ VA_I, VB_I, VC_I, V_ph, inLabel }) {
 /* ─── LoadParamFields helper ─────────────────────────────────────────────── */
 
 function LoadParamFields({ lt, prefix, vals, onChange }) {
-  const T = TRI_LOAD_TYPES.find(t => t.id === lt) ?? TRI_LOAD_TYPES[1]
+  const T = TRI_LOAD_TYPES.find(t => t.id === lt) ?? TRI_LOAD_TYPES.find(t => t.id === 'RL')
   const has = f => T.fields.includes(f)
   const p   = prefix ? prefix+'_' : ''
   return <>
@@ -1154,6 +1159,131 @@ function LoadParamFields({ lt, prefix, vals, onChange }) {
     {has('FPm') && <PField label="FP motor" unit="" value={vals[p+'FPm'] ?? '0,87'} onChange={v=>onChange(p+'FPm',v)}/>}
     {has('Cuf') && <PField label="C" unit="μF" value={vals[p+'Cuf'] ?? '50'}   onChange={v=>onChange(p+'Cuf',v)}/>}
   </>
+}
+
+function triType(id) {
+  return TRI_LOAD_TYPES.find(t => t.id === id) ?? TRI_LOAD_TYPES[0]
+}
+
+function triLoadSpec(p, key, eq = false) {
+  const prefix = eq ? '' : `${key}_`
+  const typeId = eq ? p.loadType : (p[`${key}_lt`] || 'RL')
+  return {
+    key,
+    type: triType(typeId),
+    vals: {
+      R: p[`${prefix}R`] ?? p.R,
+      L: p[`${prefix}L`] ?? p.L,
+      C: p[`${prefix}C`] ?? p.C,
+      Cuf: p[`${prefix}Cuf`] ?? p.Cuf,
+      Pn: p[`${prefix}Pn`] ?? p.Pn,
+      eta: p[`${prefix}eta`] ?? p.eta,
+      FPm: p[`${prefix}FPm`] ?? p.FPm,
+    },
+  }
+}
+
+function triSpecLine(spec) {
+  const parts = spec.type.fields.map(field => {
+    if (field === 'R') return `R ${spec.vals.R ?? '—'} Ω`
+    if (field === 'L') return `L ${spec.vals.L ?? '—'} H`
+    if (field === 'C') return `C ${spec.vals.C ?? '—'} F`
+    if (field === 'Cuf') return `C ${spec.vals.Cuf ?? '—'} μF`
+    if (field === 'Pn') return `Pn ${spec.vals.Pn ?? '—'} kW`
+    if (field === 'eta') return `η ${spec.vals.eta ?? '—'}%`
+    if (field === 'FPm') return `FP ${spec.vals.FPm ?? '—'}`
+    return ''
+  }).filter(Boolean)
+  return parts.slice(0, 2).join(' · ') || spec.type.label
+}
+
+function TriLoadBlock({ x, y, spec, label }) {
+  const w = 92
+  const h = 42
+  return (
+    <g>
+      <rect x={x - w/2} y={y - h/2} width={w} height={h} rx="7" fill="var(--c-surface)" stroke={spec.type.color} strokeWidth="2" />
+      <text x={x} y={y - 5} textAnchor="middle" fontSize="12" fontWeight="800" fill={spec.type.color}>{label} · {spec.type.id}</text>
+      <text x={x} y={y + 10} textAnchor="middle" fontSize="8.5" fill="var(--c-text-muted)">{triSpecLine(spec)}</text>
+      <title>{label}: {spec.type.label} — {triSpecLine(spec)}</title>
+    </g>
+  )
+}
+
+function TriMountedCircuitSvg({ p, rBal, rUBY, rUBD }) {
+  const eq = p.balanco === 'eq'
+  const isY = p.ligacao === 'Y'
+  const specs = eq
+    ? ['A','B','C'].map(ph => ({ ...triLoadSpec(p, ph, true), key: ph }))
+    : ['A','B','C'].map(ph => triLoadSpec(p, ph))
+  const totals = eq
+    ? { P: rBal.P, Q: rBal.Q, S: rBal.S, FP: rBal.FP, I: rBal.I_line }
+    : isY
+      ? { P: rUBY.P_tot, Q: rUBY.Q_tot, S: rUBY.S_tot, FP: rUBY.FP_tot, I: Math.max(...rUBY.results.map(r => r.I_mag), 0) }
+      : { P: rUBD.P_tot, Q: rUBD.Q_tot, S: rUBD.S_tot, FP: rUBD.FP_tot, I: Math.max(cx.mag(rUBD.IA), cx.mag(rUBD.IB), cx.mag(rUBD.IC), 0) }
+  const W = 760
+  const H = 320
+  const colors = { A:'#dc2626', B:'#16a34a', C:'#2563eb', N:'#64748b' }
+  const y = { A:64, B:112, C:160, N:240 }
+
+  if (!isY) {
+    const pa = [420, 65], pb = [600, 160], pc = [420, 255]
+    const branchSpecs = [
+      { label:'AB', spec: specs[0], x:(pa[0]+pb[0])/2+18, y:(pa[1]+pb[1])/2-8 },
+      { label:'BC', spec: specs[1], x:(pb[0]+pc[0])/2+18, y:(pb[1]+pc[1])/2+8 },
+      { label:'CA', spec: specs[2], x:pa[0]-30, y:(pa[1]+pc[1])/2 },
+    ]
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'100%' }}>
+        <rect x="10" y="10" width={W-20} height={H-20} rx="8" fill="var(--c-surface-2)" stroke="var(--c-border)" />
+        <text x="28" y="34" fontSize="12" fontWeight="800" fill="var(--c-text)">Circuito montado · Δ Triângulo · {eq ? 'equilibrado' : 'desequilibrado'}</text>
+        <circle cx="70" cy="160" r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
+        <text x="70" y="167" textAnchor="middle" fontSize="24">~</text>
+        <text x="70" y="207" textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
+        <line x1="105" y1={y.A} x2={pa[0]} y2={pa[1]} stroke={colors.A} strokeWidth="3" />
+        <line x1="105" y1={y.B} x2={pb[0]} y2={pb[1]} stroke={colors.B} strokeWidth="3" />
+        <line x1="105" y1={y.C} x2={pc[0]} y2={pc[1]} stroke={colors.C} strokeWidth="3" />
+        {['A','B','C'].map(ph => <text key={ph} x="122" y={y[ph]-8} fontSize="13" fontWeight="800" fill={colors[ph]}>{ph}</text>)}
+        <polygon points={`${pa[0]},${pa[1]} ${pb[0]},${pb[1]} ${pc[0]},${pc[1]}`} fill="none" stroke="var(--c-text)" strokeWidth="2" />
+        {branchSpecs.map(item => <TriLoadBlock key={item.label} {...item} />)}
+        <text x="28" y="286" fontSize="11" fill="var(--c-text-muted)">
+          P {fmt(totals.P/1000,2)} kW · Q {fmt(totals.Q/1000,2)} kvar · FP {fmt(totals.FP,4)} · Imax {fmt(totals.I,3)} A
+        </text>
+      </svg>
+    )
+  }
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'100%' }}>
+      <rect x="10" y="10" width={W-20} height={H-20} rx="8" fill="var(--c-surface-2)" stroke="var(--c-border)" />
+      <text x="28" y="34" fontSize="12" fontWeight="800" fill="var(--c-text)">Circuito montado · Y Estrela · {eq ? 'equilibrado' : 'desequilibrado'}</text>
+      <circle cx="70" cy="145" r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
+      <text x="70" y="152" textAnchor="middle" fontSize="24">~</text>
+      <text x="70" y="194" textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
+      {['A','B','C','N'].map(ph => (
+        <g key={ph}>
+          <line x1="108" y1={y[ph]} x2="660" y2={y[ph]} stroke={colors[ph]} strokeWidth={ph === 'N' ? 2 : 3} strokeDasharray={ph === 'N' ? '5 4' : undefined} />
+          <text x="122" y={y[ph]-8} fontSize="13" fontWeight="800" fill={colors[ph]}>{ph}</text>
+        </g>
+      ))}
+      {specs.map((spec, index) => {
+        const ph = ['A','B','C'][index]
+        const x = 390 + index * 105
+        const midY = (y[ph] + y.N) / 2
+        return (
+          <g key={ph}>
+            <line x1={x} y1={y[ph]} x2={x} y2={y.N} stroke="var(--c-text)" strokeWidth="2" />
+            <circle cx={x} cy={y[ph]} r="5" fill={colors[ph]} />
+            <circle cx={x} cy={y.N} r="5" fill={colors.N} />
+            <TriLoadBlock x={x} y={midY} spec={spec} label={`${ph}-N`} />
+          </g>
+        )
+      })}
+      <text x="28" y="286" fontSize="11" fill="var(--c-text-muted)">
+        P {fmt(totals.P/1000,2)} kW · Q {fmt(totals.Q/1000,2)} kvar · FP {fmt(totals.FP,4)} · Imax {fmt(totals.I,3)} A
+      </text>
+    </svg>
+  )
 }
 
 /* ─── SubCATri ────────────────────────────────────────────────────────────── */
@@ -1395,9 +1525,14 @@ function SubCATri() {
         </div>
       </div>
 
-      {/* Center: phasor diagram */}
+      {/* Center: mounted circuit + phasor diagram */}
       <div style={{ display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
-        <div className="panel" style={{ flex:'1 1 auto', minHeight:200 }}>
+        <div className="panel" style={{ flex:'1 1 auto', minHeight:300 }}>
+          <div className="panel__head">Circuito Montado — {pLabel}</div>
+          <TriMountedCircuitSvg p={p} rBal={rBal} rUBY={rUBY} rUBD={rUBD} />
+        </div>
+
+        <div className="panel" style={{ flex:'1 1 auto', minHeight:230 }}>
           <div className="panel__head">Diagrama Fasorial Trifásico — {pLabel}</div>
           <TriPhasor3F {...phasors} inLabel={pLabel}/>
         </div>
