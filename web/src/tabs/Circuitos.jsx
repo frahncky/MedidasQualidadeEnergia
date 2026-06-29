@@ -1445,23 +1445,20 @@ function TriMountedCircuitSvg({ p, rBal, rUBY, rUBD }) {
 function TriCircuitBuilderSvg({ p, circuit, loads }) {
   const isY = p.ligacao === 'Y'
   const colors = { A:'#dc2626', B:'#16a34a', C:'#2563eb', N:'#64748b', AB:'#dc2626', BC:'#16a34a', CA:'#2563eb' }
-  const physicalLoads = loads.flatMap(load => {
-    const qty = Math.max(1, Math.round(parseNum(load.qty) || 1))
-    return Array.from({ length: qty }, (_, index) => ({ ...load, copy: index + 1 }))
-  })
-  const branchLoads = isY
-    ? ['A', 'B', 'C'].flatMap(target => triBranchLoadCopies(loads, target, p.ligacao).map(load => ({ load, target })))
-    : []
-  const visualCount = isY ? Math.max(1, branchLoads.length) : Math.max(1, physicalLoads.length)
-  const W = Math.max(800, 250 + visualCount * (isY ? 120 : 150))
-  const H = isY ? 400 : 445
-  const y = { A:62, B:91, C:120, N:315 }
+  const visualCount = Math.max(1, loads.length)
+  const W = Math.max(880, 260 + visualCount * 200)
+  const H = isY ? 435 : 425
+  const y = { A:62, B:91, C:120, N:330 }
+  const loadW = 176
+  const loadH = 126
+  const loadTop = 170
+  const loadBottom = loadTop + loadH
   const phaseCurrentLabels = ['A', 'B', 'C'].map(ph => {
     const I = circuit.lineCurrents?.[ph] || [0, 0]
-    return `I${ph} = ${fmt(cx.mag(I), 3)} A ∠ ${fmt(cx.arg(I) * 180 / Math.PI, 1)}°`
+    return `I${ph} = ${fmt(cx.mag(I), 3)} ∠ ${fmt(cx.arg(I) * 180 / Math.PI, 1)}° A`
   })
   const neutralCurrentLabel = isY && circuit.IN
-    ? `IN = ${fmt(cx.mag(circuit.IN), 3)} A ∠ ${fmt(cx.arg(circuit.IN) * 180 / Math.PI, 1)}°`
+    ? `IN = ${fmt(cx.mag(circuit.IN), 3)} ∠ ${fmt(cx.arg(circuit.IN) * 180 / Math.PI, 1)}° A`
     : null
   const summaryLines = [
     `Resumo total · P = ${fmt(circuit.P_tot/1000, 2)} kW · Q = ${fmt(circuit.Q_tot/1000, 2)} kvar · S = ${fmt(circuit.S_tot/1000, 2)} kVA · FP = ${fmt(circuit.FP_tot, 4)}`,
@@ -1470,36 +1467,6 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
   ].filter(Boolean)
   const summaryBoxH = 18 + summaryLines.length * 14
   const summaryBoxY = H - summaryBoxH - 12
-
-  function CurrentBadge({ x, y, lines, width = 106 }) {
-    const height = 17 + Math.max(0, lines.length - 1) * 11
-    return (
-      <g>
-        <rect
-          x={x - width/2}
-          y={y - 11}
-          width={width}
-          height={height}
-          rx="6"
-          fill="var(--c-surface-2)"
-          stroke="var(--c-border)"
-        />
-        {lines.map((line, index) => (
-          <text
-            key={line.label}
-            x={x}
-            y={y + index * 11}
-            textAnchor="middle"
-            fontSize="8.5"
-            fontWeight="800"
-            fill="var(--c-text-muted)"
-          >
-            {line.label}: I {fmt(line.mag, 3)} A ∠ {fmt(line.angle, 1)}°
-          </text>
-        ))}
-      </g>
-    )
-  }
 
   function PhaseBuses() {
     return (
@@ -1520,53 +1487,68 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
     )
   }
 
-  function StarLoadAt({ item, index }) {
-    const { load, target } = item
-    const x = 235 + index * 120
-    const blockY = 225
-    const spec = { type: triType(load.type), vals: triLoadVals(load) }
-    const current = triLoadCurrentInfo(load, p, target)
-    return (
-      <g>
-        <line x1={x} y1={y[target]} x2={x} y2={blockY - 24} stroke={colors[target]} strokeWidth="2" />
-        <line x1={x} y1={blockY + 24} x2={x} y2={y.N} stroke={colors.N} strokeWidth="2" strokeDasharray="4 3" />
-        <circle cx={x} cy={y[target]} r="4" fill={colors[target]} />
-        <circle cx={x} cy={y.N} r="4" fill={colors.N} />
-        <TriLoadBlock x={x} y={blockY} spec={spec} label={`${target}-N${load.copy > 1 ? `.${load.copy}` : ''}`} />
-        <CurrentBadge x={x} y={blockY + 43} lines={[{ label: target, ...current }]} />
-      </g>
-    )
+  function phaseTerminals(load, targets) {
+    if (isY) return targets
+    return [...new Set(targets.flatMap(target => target.split('')))]
   }
 
-  function DeltaLoadAt({ load, index }) {
-    const x = 245 + index * 150
-    const top = [x, 160]
-    const left = [x - 52, 268]
-    const right = [x + 52, 268]
-    const spec = { type: triType(load.type), vals: triLoadVals(load) }
+  function terminalXMap(terminals, center) {
+    const spread = terminals.length <= 1 ? 0 : terminals.length === 2 ? 34 : 48
+    return terminals.reduce((map, terminal, index) => {
+      const offset = terminals.length <= 1 ? 0 : -spread + (2 * spread * index) / (terminals.length - 1)
+      return { ...map, [terminal]: center + offset }
+    }, {})
+  }
+
+  function CircuitLoadRect({ load, index }) {
+    const x = 255 + index * 200
     const targets = triLoadTargets(load, p.ligacao)
-    const active = target => targets.includes(target)
+    const terminals = phaseTerminals(load, targets)
+    const terminalXs = terminalXMap(terminals, x)
+    const spec = { type: triType(load.type), vals: triLoadVals(load) }
+    const qty = Math.max(1, Math.round(parseNum(load.qty) || 1))
+    const scope = TRI_SCOPE_LABELS[load.scope] || load.scope
+    const power = triLoadContribution(load, p)
     const currentLines = targets.map(target => ({ label: target, ...triLoadCurrentInfo(load, p, target) }))
 
     return (
       <g>
-        <line x1={x} y1={y.A} x2={top[0]} y2={top[1]} stroke={colors.A} strokeWidth="1.8" />
-        <line x1={x - 52} y1={y.B} x2={left[0]} y2={left[1]} stroke={colors.B} strokeWidth="1.8" />
-        <line x1={x + 52} y1={y.C} x2={right[0]} y2={right[1]} stroke={colors.C} strokeWidth="1.8" />
-        <circle cx={top[0]} cy={top[1]} r="4" fill={colors.A} />
-        <circle cx={left[0]} cy={left[1]} r="4" fill={colors.B} />
-        <circle cx={right[0]} cy={right[1]} r="4" fill={colors.C} />
-        <polygon points={`${top[0]},${top[1]} ${left[0]},${left[1]} ${right[0]},${right[1]}`} fill="none" stroke="var(--c-text)" strokeWidth="2" />
-        <line x1={top[0]} y1={top[1]} x2={left[0]} y2={left[1]} stroke={active('AB') ? colors.AB : 'var(--c-border)'} strokeWidth={active('AB') ? 5 : 2} strokeOpacity={active('AB') ? .9 : 1} />
-        <line x1={left[0]} y1={left[1]} x2={right[0]} y2={right[1]} stroke={active('BC') ? colors.BC : 'var(--c-border)'} strokeWidth={active('BC') ? 5 : 2} strokeOpacity={active('BC') ? .9 : 1} />
-        <line x1={right[0]} y1={right[1]} x2={top[0]} y2={top[1]} stroke={active('CA') ? colors.CA : 'var(--c-border)'} strokeWidth={active('CA') ? 5 : 2} strokeOpacity={active('CA') ? .9 : 1} />
-        <rect x={x - 48} y="292" width="96" height="42" rx="7" fill="var(--c-surface)" stroke={spec.type.color} strokeWidth="2" />
-        <text x={x} y="309" textAnchor="middle" fontSize="11" fontWeight="800" fill={spec.type.color}>
-          {load.scope}{load.copy > 1 ? `.${load.copy}` : ''} · {load.type}
+        {terminals.map(terminal => {
+          const tx = terminalXs[terminal]
+          return (
+            <g key={terminal}>
+              <line x1={tx} y1={y[terminal]} x2={tx} y2={loadTop} stroke={colors[terminal]} strokeWidth="2.2" />
+              <circle cx={tx} cy={y[terminal]} r="4" fill={colors[terminal]} />
+              <circle cx={tx} cy={loadTop} r="3.5" fill={colors[terminal]} />
+            </g>
+          )
+        })}
+        {isY && (
+          <g>
+            <line x1={x} y1={loadBottom} x2={x} y2={y.N} stroke={colors.N} strokeWidth="2" strokeDasharray="4 3" />
+            <circle cx={x} cy={loadBottom} r="3.5" fill={colors.N} />
+            <circle cx={x} cy={y.N} r="4" fill={colors.N} />
+          </g>
+        )}
+        <rect x={x - loadW/2} y={loadTop} width={loadW} height={loadH} rx="8" fill="var(--c-surface)" stroke={spec.type.color} strokeWidth="2" />
+        <text x={x} y={loadTop + 18} textAnchor="middle" fontSize="11.5" fontWeight="800" fill={spec.type.color}>
+          {isY ? 'Y' : 'Δ'} · {scope} · x{qty}
         </text>
-        <text x={x} y="324" textAnchor="middle" fontSize="8.5" fill="var(--c-text-muted)">{triSpecLine(spec)}</text>
-        <CurrentBadge x={x} y={354} lines={currentLines} width={112} />
-        <title>{TRI_SCOPE_LABELS[load.scope] || load.scope}: {spec.type.label} — {triSpecLine(spec)}</title>
+        <text x={x} y={loadTop + 35} textAnchor="middle" fontSize="10" fontWeight="800" fill="var(--c-text)">
+          {load.type} · {triSpecLine(spec)}
+        </text>
+        <text x={x} y={loadTop + 51} textAnchor="middle" fontSize="8.5" fill="var(--c-text-muted)">
+          P {fmt(power.P/1000, 2)} kW · Q {fmt(power.Q/1000, 2)} kvar
+        </text>
+        <text x={x} y={loadTop + 66} textAnchor="middle" fontSize="8.5" fill="var(--c-text-muted)">
+          S {fmt(power.S/1000, 2)} kVA · Imax {fmt(power.I, 3)} A
+        </text>
+        {currentLines.map((line, lineIndex) => (
+          <text key={line.label} x={x} y={loadTop + 84 + lineIndex * 12} textAnchor="middle" fontSize="8.5" fontWeight="800" fill="var(--c-text-muted)">
+            I{line.label} {fmt(line.mag, 3)} ∠ {fmt(line.angle, 1)}° A
+          </text>
+        ))}
+        <title>{scope}: {spec.type.label} — {triSpecLine(spec)}</title>
       </g>
     )
   }
@@ -1581,15 +1563,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
       <text x="70" y="98" textAnchor="middle" fontSize="24">~</text>
       <text x="70" y="140" textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
       <PhaseBuses />
-      {isY ? (
-        <>
-          {branchLoads.map((item, index) => <StarLoadAt key={`${item.target}-${item.load.id}-${index}`} item={item} index={index} />)}
-        </>
-      ) : (
-        <>
-          {physicalLoads.map((load, index) => <DeltaLoadAt key={`${load.id}-${index}`} load={load} index={index} />)}
-        </>
-      )}
+      {loads.map((load, index) => <CircuitLoadRect key={load.id} load={load} index={index} />)}
 
       {loads.length === 0 && (
         <text x={W/2} y={H/2} textAnchor="middle" fontSize="13" fontWeight="700" fill="var(--c-text-muted)">
@@ -1627,8 +1601,7 @@ function triLoadCurrentInfo(load, p, target) {
   const ligacao = p.ligacao
   const VL = parseNum(p.VL) || 13800
   const f = parseNum(p.freq) || 60
-  const unitLoad = { ...load, qty: 1 }
-  const Y = triLoadAdmittance(unitLoad, f, VL)
+  const Y = triLoadAdmittance(load, f, VL)
   const yPhases = {
     A: cx.polar(VL / Math.sqrt(3), 0),
     B: cx.polar(VL / Math.sqrt(3), -2*Math.PI/3),
