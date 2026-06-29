@@ -1043,3 +1043,59 @@ body, button, input, select, textarea,
     display: none;
   }
 }
+
+/* Dashboard viewport fix */
+.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 196px);
+  max-height: calc(100vh - 196px);
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.dashboard-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 5fr) minmax(280px, 3fr);
+  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 14px 14px;
+}
+
+.dashboard-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dashboard-col > .panel {
+  min-height: 0;
+  min-width: 0;
+}
+
+@media (max-width: 1280px) {
+  .dashboard-page {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .dashboard-col {
+    overflow: visible;
+  }
+
+  .dashboard-col > .panel {
+    min-height: 260px;
+  }
+}

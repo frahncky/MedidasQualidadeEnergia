@@ -121,7 +121,7 @@ export default function Dashboard({ onNavigate }) {
   }, [])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 1080, overflow: 'visible', position: 'relative' }}>
+    <div className="dashboard-page">
 
       {loading && (
         <div className="loading-overlay">
@@ -170,10 +170,10 @@ export default function Dashboard({ onNavigate }) {
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '5fr 5fr 3fr', gap: 14, padding: '0 14px 14px', overflow: 'visible', minHeight: 760 }}>
+      <div className="dashboard-grid">
 
         {/* Left column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+        <div className="dashboard-col">
           <div className="panel" style={{ flex: 2 }}>
             <div className="panel__head">
               Potência Ativa e Energia Acumulada — {period}
@@ -216,7 +216,7 @@ export default function Dashboard({ onNavigate }) {
         </div>
 
         {/* Center column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+        <div className="dashboard-col">
           <div className="panel" style={{ flexShrink: 0 }}>
             <div className="panel__head">Alarmes e Eventos Recentes</div>
             <div style={{ maxHeight: 200, overflow: 'auto' }}>
@@ -276,7 +276,7 @@ export default function Dashboard({ onNavigate }) {
         </div>
 
         {/* Right column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+        <div className="dashboard-col">
           <div className="panel">
             <div className="panel__head">Resumo da Instalação</div>
             <div className="panel__body">
