@@ -23,3 +23,10 @@ ou Environment variables, e crie essa variavel para Production.
 
 O `wrangler.toml` fica nesta pasta porque o Cloudflare executa o build dentro de `web`.
 O Vite gera `dist/`, e o Wrangler publica exatamente esse diretorio como assets estaticos.
+
+Nao adicione `public/_redirects` para SPA neste modo. O fallback ja e feito por:
+
+```toml
+[assets]
+not_found_handling = "single-page-application"
+```
