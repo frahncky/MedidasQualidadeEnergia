@@ -1,4 +1,8 @@
 import { useState, useMemo } from 'react'
+import {
+  Bar, BarChart, CartesianGrid, Legend, Line, LineChart,
+  ResponsiveContainer, Tooltip, XAxis, YAxis
+} from 'recharts'
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 
@@ -1242,11 +1246,11 @@ function MonoPhasorPara({ c }) {
 /* ─── TriPhasor3F SVG ────────────────────────────────────────────────────── */
 
 function TriPhasor3F({ VA_I, VB_I, VC_I, V_ph, inLabel }) {
-  const W = 380, H = 280, ox = W/2, oy = H/2
-  const scV = 85 / (V_ph || 1)
+  const W = 330, H = 210, ox = W/2, oy = H/2
+  const scV = 62 / (V_ph || 1)
   const iMags = [cx.mag(VA_I.I), cx.mag(VB_I.I), cx.mag(VC_I.I)]
   const maxI  = Math.max(...iMags, 0.01)
-  const scI   = 60 / maxI
+  const scI   = 46 / maxI
 
   function Arr({ z, color, label, dashed, scale }) {
     const x2 = ox + scale * z[0], y2 = oy - scale * z[1]
@@ -1441,37 +1445,80 @@ function TriMountedCircuitSvg({ p, rBal, rUBY, rUBD }) {
 function TriCircuitBuilderSvg({ p, circuit, loads }) {
   const isY = p.ligacao === 'Y'
   const colors = { A:'#dc2626', B:'#16a34a', C:'#2563eb', N:'#64748b', AB:'#dc2626', BC:'#16a34a', CA:'#2563eb' }
-  const rows = isY ? ['A', 'B', 'C'] : ['AB', 'BC', 'CA']
-  const copiesByTarget = rows.map(target => ({
-    target,
-    loads: triBranchLoadCopies(loads, target, p.ligacao),
-  }))
-  const maxLoads = Math.max(1, ...copiesByTarget.map(row => row.loads.length))
-  const W = Math.max(760, 320 + maxLoads * 126)
-  const H = isY ? 320 : 300
-  const y = isY
-    ? { A:64, B:112, C:160, N:242 }
-    : { A:58, B:108, C:158, AB:84, BC:160, CA:236 }
+  const physicalLoads = loads.flatMap(load => {
+    const qty = Math.max(1, Math.round(parseNum(load.qty) || 1))
+    return Array.from({ length: qty }, (_, index) => ({ ...load, copy: index + 1 }))
+  })
+  const branchLoads = isY
+    ? ['A', 'B', 'C'].flatMap(target => triBranchLoadCopies(loads, target, p.ligacao).map(load => ({ load, target })))
+    : []
+  const visualCount = isY ? Math.max(1, branchLoads.length) : Math.max(1, physicalLoads.length)
+  const W = Math.max(800, 250 + visualCount * (isY ? 120 : 150))
+  const H = isY ? 360 : 370
+  const y = { A:62, B:91, C:120, N:315 }
 
-  function LoadAt({ load, target, index, yPos }) {
-    const x = 305 + index * 122
+  function PhaseBuses() {
+    return (
+      <>
+        {['A','B','C'].map(ph => (
+          <g key={ph}>
+            <line x1="112" y1={y[ph]} x2={W-45} y2={y[ph]} stroke={colors[ph]} strokeWidth="3" />
+            <text x="125" y={y[ph]-8} fontSize="13" fontWeight="800" fill={colors[ph]}>{ph}</text>
+          </g>
+        ))}
+        {isY && (
+          <g>
+            <line x1="112" y1={y.N} x2={W-45} y2={y.N} stroke={colors.N} strokeWidth="2" strokeDasharray="5 4" />
+            <text x="125" y={y.N-8} fontSize="13" fontWeight="800" fill={colors.N}>N</text>
+          </g>
+        )}
+      </>
+    )
+  }
+
+  function StarLoadAt({ item, index }) {
+    const { load, target } = item
+    const x = 235 + index * 120
+    const blockY = 225
     const spec = { type: triType(load.type), vals: triLoadVals(load) }
     return (
       <g>
-        {isY ? (
-          <>
-            <line x1={x} y1={y[target]} x2={x} y2={y.N} stroke="var(--c-text)" strokeWidth="2" />
-            <circle cx={x} cy={y[target]} r="4" fill={colors[target]} />
-            <circle cx={x} cy={y.N} r="4" fill={colors.N} />
-          </>
-        ) : (
-          <>
-            <line x1={x - 50} y1={yPos} x2={x + 50} y2={yPos} stroke={colors[target]} strokeWidth="2" />
-            <circle cx={x - 50} cy={yPos} r="4" fill={colors[target]} />
-            <circle cx={x + 50} cy={yPos} r="4" fill={colors[target]} />
-          </>
-        )}
-        <TriLoadBlock x={x} y={isY ? (y[target] + y.N) / 2 : yPos} spec={spec} label={`${target}${load.copy > 1 ? `.${load.copy}` : ''}`} />
+        <line x1={x} y1={y[target]} x2={x} y2={blockY - 24} stroke={colors[target]} strokeWidth="2" />
+        <line x1={x} y1={blockY + 24} x2={x} y2={y.N} stroke={colors.N} strokeWidth="2" strokeDasharray="4 3" />
+        <circle cx={x} cy={y[target]} r="4" fill={colors[target]} />
+        <circle cx={x} cy={y.N} r="4" fill={colors.N} />
+        <TriLoadBlock x={x} y={blockY} spec={spec} label={`${target}-N${load.copy > 1 ? `.${load.copy}` : ''}`} />
+      </g>
+    )
+  }
+
+  function DeltaLoadAt({ load, index }) {
+    const x = 245 + index * 150
+    const top = [x, 160]
+    const left = [x - 52, 268]
+    const right = [x + 52, 268]
+    const spec = { type: triType(load.type), vals: triLoadVals(load) }
+    const targets = triLoadTargets(load, p.ligacao)
+    const active = target => targets.includes(target)
+
+    return (
+      <g>
+        <line x1={x} y1={y.A} x2={top[0]} y2={top[1]} stroke={colors.A} strokeWidth="1.8" />
+        <line x1={x - 52} y1={y.B} x2={left[0]} y2={left[1]} stroke={colors.B} strokeWidth="1.8" />
+        <line x1={x + 52} y1={y.C} x2={right[0]} y2={right[1]} stroke={colors.C} strokeWidth="1.8" />
+        <circle cx={top[0]} cy={top[1]} r="4" fill={colors.A} />
+        <circle cx={left[0]} cy={left[1]} r="4" fill={colors.B} />
+        <circle cx={right[0]} cy={right[1]} r="4" fill={colors.C} />
+        <polygon points={`${top[0]},${top[1]} ${left[0]},${left[1]} ${right[0]},${right[1]}`} fill="none" stroke="var(--c-text)" strokeWidth="2" />
+        <line x1={top[0]} y1={top[1]} x2={left[0]} y2={left[1]} stroke={active('AB') ? colors.AB : 'var(--c-border)'} strokeWidth={active('AB') ? 5 : 2} strokeOpacity={active('AB') ? .9 : 1} />
+        <line x1={left[0]} y1={left[1]} x2={right[0]} y2={right[1]} stroke={active('BC') ? colors.BC : 'var(--c-border)'} strokeWidth={active('BC') ? 5 : 2} strokeOpacity={active('BC') ? .9 : 1} />
+        <line x1={right[0]} y1={right[1]} x2={top[0]} y2={top[1]} stroke={active('CA') ? colors.CA : 'var(--c-border)'} strokeWidth={active('CA') ? 5 : 2} strokeOpacity={active('CA') ? .9 : 1} />
+        <rect x={x - 48} y="292" width="96" height="42" rx="7" fill="var(--c-surface)" stroke={spec.type.color} strokeWidth="2" />
+        <text x={x} y="309" textAnchor="middle" fontSize="11" fontWeight="800" fill={spec.type.color}>
+          {load.scope}{load.copy > 1 ? `.${load.copy}` : ''} · {load.type}
+        </text>
+        <text x={x} y="324" textAnchor="middle" fontSize="8.5" fill="var(--c-text-muted)">{triSpecLine(spec)}</text>
+        <title>{TRI_SCOPE_LABELS[load.scope] || load.scope}: {spec.type.label} — {triSpecLine(spec)}</title>
       </g>
     )
   }
@@ -1482,37 +1529,17 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
       <text x="28" y="34" fontSize="12" fontWeight="800" fill="var(--c-text)">
         Circuito montado · {isY ? 'Y Estrela' : 'Δ Triângulo'} · {p.balanco === 'eq' ? 'equilibrado' : 'desequilibrado'}
       </text>
-      <circle cx="70" cy={isY ? 145 : 116} r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
-      <text x="70" y={isY ? 152 : 123} textAnchor="middle" fontSize="24">~</text>
-      <text x="70" y={isY ? 194 : 164} textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
-
+      <circle cx="70" cy="91" r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
+      <text x="70" y="98" textAnchor="middle" fontSize="24">~</text>
+      <text x="70" y="140" textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
+      <PhaseBuses />
       {isY ? (
         <>
-          {['A','B','C','N'].map(ph => (
-            <g key={ph}>
-              <line x1="110" y1={y[ph]} x2={W-45} y2={y[ph]} stroke={colors[ph]} strokeWidth={ph === 'N' ? 2 : 3} strokeDasharray={ph === 'N' ? '5 4' : undefined} />
-              <text x="124" y={y[ph]-8} fontSize="13" fontWeight="800" fill={colors[ph]}>{ph}</text>
-            </g>
-          ))}
-          {copiesByTarget.map(row => row.loads.map((load, index) => (
-            <LoadAt key={`${row.target}-${load.id}-${index}`} load={load} target={row.target} index={index} />
-          )))}
+          {branchLoads.map((item, index) => <StarLoadAt key={`${item.target}-${item.load.id}-${index}`} item={item} index={index} />)}
         </>
       ) : (
         <>
-          {['A','B','C'].map(ph => (
-            <g key={ph}>
-              <line x1="110" y1={y[ph]} x2={W-45} y2={y[ph]} stroke={colors[ph]} strokeWidth="3" />
-              <text x="124" y={y[ph]-8} fontSize="13" fontWeight="800" fill={colors[ph]}>{ph}</text>
-            </g>
-          ))}
-          {copiesByTarget.map(row => (
-            <g key={row.target}>
-              <text x="128" y={y[row.target]+4} fontSize="12" fontWeight="800" fill={colors[row.target]}>{row.target}</text>
-              <line x1="168" y1={y[row.target]} x2={W-45} y2={y[row.target]} stroke={colors[row.target]} strokeWidth="2" strokeDasharray="5 4" />
-              {row.loads.map((load, index) => <LoadAt key={`${row.target}-${load.id}-${index}`} load={load} target={row.target} index={index} yPos={y[row.target]} />)}
-            </g>
-          ))}
+          {physicalLoads.map((load, index) => <DeltaLoadAt key={`${load.id}-${index}`} load={load} index={index} />)}
         </>
       )}
 
@@ -1525,6 +1552,98 @@ function TriCircuitBuilderSvg({ p, circuit, loads }) {
         P {fmt(circuit.P_tot/1000,2)} kW · Q {fmt(circuit.Q_tot/1000,2)} kvar · FP {fmt(circuit.FP_tot,4)}
       </text>
     </svg>
+  )
+}
+
+function triLoadContribution(load, p) {
+  const ligacao = p.ligacao
+  const VL = parseNum(p.VL) || 13800
+  const f = parseNum(p.freq) || 60
+  const targets = triLoadTargets(load, ligacao)
+  const Y = triLoadAdmittance(load, f, VL)
+  const yPhases = {
+    A: cx.polar(VL / Math.sqrt(3), 0),
+    B: cx.polar(VL / Math.sqrt(3), -2*Math.PI/3),
+    C: cx.polar(VL / Math.sqrt(3), 2*Math.PI/3),
+  }
+  const dBranches = {
+    AB: cx.polar(VL, Math.PI/6),
+    BC: cx.polar(VL, Math.PI/6 - 2*Math.PI/3),
+    CA: cx.polar(VL, Math.PI/6 + 2*Math.PI/3),
+  }
+  const voltages = ligacao === 'Y' ? yPhases : dBranches
+
+  return targets.reduce((sum, target) => {
+    const V = voltages[target]
+    const I = cx.mul(V, Y)
+    const P = cx.P(V, I)
+    const Q = cx.Q(V, I)
+    const S = cx.mag(V) * cx.mag(I)
+    return {
+      P: sum.P + P,
+      Q: sum.Q + Q,
+      S: sum.S + S,
+      I: Math.max(sum.I, cx.mag(I)),
+    }
+  }, { P: 0, Q: 0, S: 0, I: 0 })
+}
+
+function triLoadChartData(loads, p) {
+  return loads.map((load, index) => {
+    const c = triLoadContribution(load, p)
+    return {
+      name: `${index + 1}-${load.type}-${load.scope}`,
+      fp: c.S > 1e-9 ? Math.abs(c.P) / c.S : 1,
+      p: +(c.P / 1000).toFixed(4),
+      q: +(c.Q / 1000).toFixed(4),
+      s: +(c.S / 1000).toFixed(4),
+      i: +c.I.toFixed(4),
+    }
+  })
+}
+
+function TriLoadCharts({ data }) {
+  const chartData = data.length ? data : [{ name:'-', fp:0, p:0, q:0, s:0, i:0 }]
+  const tick = { fontSize: 9 }
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:8, height:'calc(100% - 38px)', padding:8 }}>
+      <div>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={tick} interval={0} />
+            <YAxis tick={tick} domain={[0, 1]} />
+            <Tooltip />
+            <Line type="monotone" dataKey="fp" name="FP" stroke="#7c3aed" strokeWidth={2} dot />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={tick} interval={0} />
+            <YAxis tick={tick} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+            <Bar dataKey="p" name="P kW" fill="#1d4ed8" />
+            <Bar dataKey="q" name="Q kvar" fill="#d97706" />
+            <Bar dataKey="s" name="S kVA" fill="#16a34a" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={tick} interval={0} />
+            <YAxis tick={tick} />
+            <Tooltip />
+            <Bar dataKey="i" name="I A" fill="#dc2626" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   )
 }
 
@@ -1552,6 +1671,7 @@ function SubCATri() {
   const scopeOptions = triScopeOptions(p.ligacao, p.balanco)
   const activeScope = scopeOptions.some(option => option.id === loadDraft.scope) ? loadDraft.scope : scopeOptions[0].id
   const triCircuit = useMemo(() => calcTriCircuitLoads(p, triLoads), [p, triLoads])
+  const triCharts = useMemo(() => triLoadChartData(triLoads, p), [triLoads, p])
 
   function addTriLoad() {
     const id = Math.max(0, ...triLoads.map(load => load.id)) + 1
@@ -1801,9 +1921,14 @@ function SubCATri() {
           </div>
         </div>
 
-        <div className="panel" style={{ flex:'1 1 auto', minHeight:230 }}>
+        <div className="panel" style={{ flex:'0 0 190px', minHeight:190 }}>
           <div className="panel__head">Diagrama Fasorial Trifásico — {pLabel}</div>
           <TriPhasor3F {...phasors} inLabel={pLabel}/>
+        </div>
+
+        <div className="panel" style={{ flex:'0 0 230px', minHeight:230 }}>
+          <div className="panel__head">Gráficos por Carga</div>
+          <TriLoadCharts data={triCharts} />
         </div>
 
         {/* Total summary */}
