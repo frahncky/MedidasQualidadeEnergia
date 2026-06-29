@@ -17,7 +17,7 @@ const PARTS = [
 
 export default function Circuitos() {
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: '220px 1fr 330px', gridTemplateRows: 'auto 1fr 250px', gap: 10, padding: 10, overflow: 'hidden' }}>
+    <div style={{ minHeight: 1080, display: 'grid', gridTemplateColumns: '240px minmax(760px, 1fr) 360px', gridTemplateRows: 'auto 540px 320px', gap: 14, padding: 14, overflow: 'visible' }}>
       <aside className="panel" style={{ gridRow: '1 / 3', minHeight: 0 }}>
         <div className="panel__head">Componentes</div>
         <div className="panel__body">

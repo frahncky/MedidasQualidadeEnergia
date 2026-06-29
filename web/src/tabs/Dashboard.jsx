@@ -46,7 +46,7 @@ export default function Dashboard() {
   const [period, setPeriod] = useState('Mês')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 1080, overflow: 'visible' }}>
 
       {/* Filter bar */}
       <div className="filter-bar">
@@ -87,7 +87,7 @@ export default function Dashboard() {
       </div>
 
       {/* Body: 3-col layout */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '5fr 5fr 3fr', gap: 10, padding: '0 12px 12px', overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '5fr 5fr 3fr', gap: 14, padding: '0 14px 14px', overflow: 'visible', minHeight: 760 }}>
 
         {/* Left column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>

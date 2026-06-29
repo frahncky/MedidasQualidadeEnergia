@@ -13,7 +13,7 @@ const figures = [
 
 export default function Relatorios() {
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateRows: 'auto 1fr 255px', gap: 10, padding: 10, overflow: 'hidden' }}>
+    <div style={{ minHeight: 1250, display: 'grid', gridTemplateRows: 'auto 760px 320px', gap: 14, padding: 14, overflow: 'visible' }}>
       <div className="panel">
         <div className="panel__head" style={{ fontSize: 15 }}>Geracao de Relatorios <span style={{ color: '#64748b', fontWeight: 400 }}>Configure, visualize e exporte relatorios profissionais de medicoes e qualidade de energia.</span></div>
         <div className="panel__body" style={{ display: 'flex', gap: 10 }}>

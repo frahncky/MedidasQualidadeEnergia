@@ -25,7 +25,7 @@ export default function Fasores() {
   ]
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', overflow:'hidden' }}>
+    <div style={{ display:'flex', flexDirection:'column', minHeight:1080, overflow:'visible' }}>
 
       {/* Action bar */}
       <div className="filter-bar">
@@ -49,7 +49,7 @@ export default function Fasores() {
       </div>
 
       {/* Main content */}
-      <div style={{ flex:1, display:'grid', gridTemplateColumns:'420px 1fr 320px', gap:10, padding:10, overflow:'hidden', minHeight:0 }}>
+      <div style={{ flex:1, display:'grid', gridTemplateColumns:'440px minmax(560px, 1fr) 340px', gap:14, padding:14, overflow:'visible', minHeight:760 }}>
 
         {/* Left: Phasor diagram */}
         <div style={{ display:'flex', flexDirection:'column', gap:10, minHeight:0 }}>

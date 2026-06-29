@@ -21,7 +21,7 @@ const alarms = [
 
 export default function Metrologia() {
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.75fr 0.75fr', gridTemplateRows: '230px 250px 250px 180px', gap: 10, padding: 10, overflow: 'hidden' }}>
+    <div style={{ minHeight: 1180, display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.85fr 0.85fr', gridTemplateRows: '260px 300px 300px 240px', gap: 14, padding: 14, overflow: 'visible' }}>
       <div className="panel">
         <div className="panel__head">Orcamento de Incerteza da Medicao</div>
         <table className="tbl">

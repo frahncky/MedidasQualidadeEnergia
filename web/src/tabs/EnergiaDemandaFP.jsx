@@ -34,7 +34,7 @@ const sectors = [
 
 export default function EnergiaDemandaFP() {
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateRows: 'auto auto 1fr 1fr 200px', gap: 10, padding: 10, overflow: 'hidden' }}>
+    <div style={{ minHeight: 1250, display: 'grid', gridTemplateRows: 'auto auto 320px 320px 250px', gap: 14, padding: 14, overflow: 'visible' }}>
       <div className="filter-bar" style={{ border: '1px solid #e2e8f0', borderRadius: 8 }}>
         <label>Periodo de Analise</label><input value="01/05/2024 00:00" readOnly /><span>ate</span><input value="31/05/2024 23:59" readOnly />
         <label>Instalacao</label><select><option>Subestacao Principal</option></select>

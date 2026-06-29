@@ -30,7 +30,7 @@ export default function QualidadeEnergia() {
   const thd = useMemo(() => calcTHD(HARMONICS).toFixed(2), [])
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', overflow:'hidden' }}>
+    <div style={{ display:'flex', flexDirection:'column', minHeight:1100, overflow:'visible' }}>
 
       {/* Filter bar */}
       <div className="filter-bar">
@@ -65,7 +65,7 @@ export default function QualidadeEnergia() {
       </div>
 
       {/* Charts 2×3 */}
-      <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gridTemplateRows:'1fr 1fr', gap:8, padding:'0 12px', minHeight:0 }}>
+      <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gridTemplateRows:'320px 320px', gap:14, padding:'0 14px', minHeight:670 }}>
 
         <div className="panel">
           <div className="panel__head">Espectro Harmônico de Tensão — THD = {thd}%</div>

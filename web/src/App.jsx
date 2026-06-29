@@ -43,7 +43,7 @@ export default function App() {
         <button className="header__btn">Configurações</button>
       </header>
 
-      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="app-main">
         <nav className="tab-nav">
           {TABS.map(t => (
             <button

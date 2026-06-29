@@ -49,7 +49,7 @@ const WAVE = Array.from({ length: 60 }, (_, i) => ({
 
 export default function Dados() {
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: '300px 1fr 330px', gap: 10, padding: 10, overflow: 'hidden' }}>
+    <div style={{ minHeight: 1080, display: 'grid', gridTemplateColumns: '320px minmax(720px, 1fr) 360px', gap: 14, padding: 14, overflow: 'visible' }}>
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <div className="panel" style={{ flex: 1 }}>
           <div className="panel__head">Fontes de Dados <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }}>+ Adicionar</button></div>

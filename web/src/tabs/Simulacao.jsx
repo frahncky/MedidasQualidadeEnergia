@@ -55,7 +55,7 @@ export default function Simulacao() {
   ]
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', gap: 0 }}>
+    <div style={{ display: 'flex', minHeight: 1100, overflow: 'visible', gap: 0 }}>
 
       {/* Left: type selector + params */}
       <div style={{ width: 256, display: 'flex', flexDirection: 'column', gap: 8, padding: 10, flexShrink: 0, borderRight: '1px solid #e2e8f0', overflow: 'auto' }}>
@@ -108,7 +108,7 @@ export default function Simulacao() {
       </div>
 
       {/* Right: results */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, padding: 10, overflow: 'hidden', minWidth: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, padding: 14, overflow: 'visible', minWidth: 0, minHeight: 1040 }}>
 
         {/* Action bar */}
         <div className="action-bar">

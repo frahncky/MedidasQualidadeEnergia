@@ -30,7 +30,7 @@ const comparison = [
 
 export default function Medidas() {
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: '220px 1fr 290px', gap: 10, padding: 10, overflow: 'hidden' }}>
+    <div style={{ minHeight: 1120, display: 'grid', gridTemplateColumns: '240px minmax(760px, 1fr) 320px', gap: 14, padding: 14, overflow: 'visible' }}>
       <aside className="panel" style={{ minHeight: 0 }}>
         <div className="panel__head">Instrumentos Disponiveis</div>
         <div className="panel__body scroll-y" style={{ height: 'calc(100% - 82px)', overflow: 'auto' }}>
