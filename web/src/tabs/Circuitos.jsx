@@ -336,9 +336,85 @@ function calcTriUnbalD(p) {
   }
 }
 
+const TRI_LOAD_BASE = {
+  qty: '1',
+  R: '10',
+  L: '0,05',
+  C: '0,001',
+  Cuf: '50',
+  Pn: '37',
+  eta: '92',
+  FPm: '0,87',
+}
+
 const TRI_DEFAULT_CIRCUIT_LOADS = [
-  { id: 1, scope: 'ABC', type: 'RL', qty: 1, R: '10', L: '0,05', C: '0,001', Cuf: '50', Pn: '37', eta: '92', FPm: '0,87' },
+  { id: 1, ...TRI_LOAD_BASE, scope: 'ABC', type: 'RL' },
 ]
+
+const TRI_UNBALANCED_LOAD_PRESETS = {
+  Y: [
+    { scope: 'A', type: 'RL', R: '10', L: '0,05' },
+    { scope: 'B', type: 'R', R: '20' },
+    { scope: 'C', type: 'RC', R: '15', C: '0,002' },
+  ],
+  D: [
+    { scope: 'AB', type: 'RLC', R: '10', L: '0,05', C: '0,001' },
+    { scope: 'BC', type: 'R', R: '20' },
+    { scope: 'CA', type: 'RL', R: '15', L: '0,03' },
+  ],
+}
+
+function triLoadWithDefaults(load) {
+  return {
+    ...TRI_LOAD_BASE,
+    ...load,
+    qty: String(load.qty ?? TRI_LOAD_BASE.qty),
+  }
+}
+
+function triDirectTargets(ligacao) {
+  return ligacao === 'Y' ? ['A', 'B', 'C'] : ['AB', 'BC', 'CA']
+}
+
+function triPresetLoads(ligacao) {
+  const templates = ligacao === 'Y' ? TRI_UNBALANCED_LOAD_PRESETS.Y : TRI_UNBALANCED_LOAD_PRESETS.D
+  return templates.map((load, index) => ({
+    ...triLoadWithDefaults(load),
+    id: index + 1,
+  }))
+}
+
+function triDefaultTargetLoad(ligacao, target) {
+  const templates = ligacao === 'Y' ? TRI_UNBALANCED_LOAD_PRESETS.Y : TRI_UNBALANCED_LOAD_PRESETS.D
+  return triLoadWithDefaults(templates.find(load => load.scope === target) ?? { scope: target, type: 'RL' })
+}
+
+function triNextLoadId(loads) {
+  return Math.max(0, ...loads.map(load => load.id || 0)) + 1
+}
+
+function triBalancedLoadFrom(loads) {
+  const source = loads.find(load => load.scope === 'ABC') || loads[0] || TRI_DEFAULT_CIRCUIT_LOADS[0]
+  return [{
+    ...triLoadWithDefaults(source),
+    id: 1,
+    scope: 'ABC',
+    qty: String(source.scope === 'ABC' ? (source.qty ?? '1') : '1'),
+  }]
+}
+
+function triNormalizeLoadsForMode(loads, ligacao, balanco) {
+  if (balanco === 'eq') return triBalancedLoadFrom(loads)
+
+  const targets = triDirectTargets(ligacao)
+  const targetLoads = loads.filter(load => targets.includes(load.scope))
+  if (targetLoads.length === 0) return triPresetLoads(ligacao)
+
+  return targetLoads.map((load, index) => ({
+    ...triLoadWithDefaults(load),
+    id: index + 1,
+  }))
+}
 
 const TRI_SCOPE_LABELS = {
   ABC: 'Três fases',
@@ -1763,7 +1839,7 @@ function SubCATri() {
   const [mode, setMode]     = useState('analise')   // 'analise' | 'editor'
   const [p, setP]           = useState(DEFAULT_TRI_LOADS)
   const [triLoads, setTriLoads] = useState(TRI_DEFAULT_CIRCUIT_LOADS)
-  const [loadDraft, setLoadDraft] = useState({ scope:'ABC', type:'RL', qty:'1', R:'10', L:'0,05', C:'0,001', Cuf:'50', Pn:'37', eta:'92', FPm:'0,87' })
+  const [loadDraft, setLoadDraft] = useState({ ...TRI_LOAD_BASE, scope:'ABC', type:'RL' })
   const sp = (k, v) => setP(prev => ({...prev, [k]: v}))
   const sd = (k, v) => setLoadDraft(prev => ({ ...prev, [k]: v }))
 
@@ -1779,23 +1855,29 @@ function SubCATri() {
   const isEq  = p.balanco === 'eq'
   const isY   = p.ligacao === 'Y'
   const scopeOptions = triScopeOptions(p.ligacao, p.balanco)
+  const directTargets = triDirectTargets(p.ligacao)
+  const directTitle = isY ? 'Cargas por Fase' : 'Cargas Entre Fases'
   const activeScope = scopeOptions.some(option => option.id === loadDraft.scope) ? loadDraft.scope : scopeOptions[0].id
   const triCircuit = useMemo(() => calcTriCircuitLoads(p, triLoads), [p, triLoads])
   const triCharts = useMemo(() => triLoadChartData(triLoads, p), [triLoads, p])
 
   function setLigacao(lig) {
-    sp('ligacao', lig)
+    setP(prev => ({ ...prev, ligacao: lig }))
     sd('scope', triScopeOptions(lig, p.balanco)[0].id)
+    setTriLoads(prev => triNormalizeLoadsForMode(prev, lig, p.balanco))
   }
 
   function setBalanco(balanco) {
-    sp('balanco', balanco)
+    setP(prev => ({ ...prev, balanco }))
     sd('scope', triScopeOptions(p.ligacao, balanco)[0].id)
+    setTriLoads(prev => triNormalizeLoadsForMode(prev, p.ligacao, balanco))
   }
 
   function addTriLoad() {
-    const id = Math.max(0, ...triLoads.map(load => load.id)) + 1
-    setTriLoads(prev => [...prev, { ...loadDraft, scope: activeScope, id }])
+    setTriLoads(prev => [
+      ...prev,
+      { ...triLoadWithDefaults(loadDraft), scope: activeScope, id: triNextLoadId(prev) },
+    ])
   }
 
   function updateTriLoad(id, key, value) {
@@ -1812,6 +1894,34 @@ function SubCATri() {
 
   function removeTriLoad(id) {
     setTriLoads(prev => prev.filter(load => load.id !== id))
+  }
+
+  function applyUnbalancedPreset() {
+    setTriLoads(triPresetLoads(p.ligacao))
+  }
+
+  function addDirectTargetLoad(target) {
+    setTriLoads(prev => [
+      ...prev,
+      { ...triDefaultTargetLoad(p.ligacao, target), id: triNextLoadId(prev) },
+    ])
+  }
+
+  function updateDirectTargetLoad(target, key, value) {
+    setTriLoads(prev => {
+      const targetIndex = prev.findIndex(load => load.scope === target)
+      if (targetIndex < 0) {
+        return [
+          ...prev,
+          { ...triDefaultTargetLoad(p.ligacao, target), [key]: value, id: triNextLoadId(prev) },
+        ]
+      }
+      return prev.map((load, index) => index === targetIndex ? { ...load, [key]: value } : load)
+    })
+  }
+
+  function removeDirectTargetLoads(target) {
+    setTriLoads(prev => prev.filter(load => load.scope !== target))
   }
 
   // Resolve unified phasor data
@@ -1984,6 +2094,61 @@ function SubCATri() {
               ))}
             </div>
           </Section>
+
+          {!isEq && (
+            <Section title={directTitle}>
+              <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+                <button className="btn btn-ghost btn-sm" style={{ flex:1 }} onClick={applyUnbalancedPreset}>
+                  {isY ? 'A RL · B R · C RC' : 'AB RLC · BC R · CA RL'}
+                </button>
+              </div>
+              {directTargets.map(target => {
+                const targetLoads = triLoads.filter(load => load.scope === target)
+                const load = targetLoads[0]
+                if (!load) {
+                  return (
+                    <div key={target} className="surface-box" style={{ padding:8, marginBottom:6 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <b style={{ fontSize:11 }}>{triScopeShort(target, p.ligacao)}</b>
+                        <button className="btn btn-primary btn-sm" style={{ marginLeft:'auto', fontSize:9, padding:'2px 6px' }} onClick={()=>addDirectTargetLoad(target)}>
+                          Adicionar
+                        </button>
+                      </div>
+                    </div>
+                  )
+                }
+
+                const t = triType(load.type)
+                const edit = (key, value) => updateDirectTargetLoad(target, key, value)
+                return (
+                  <div key={target} className="surface-box" style={{ padding:8, marginBottom:6 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:7 }}>
+                      <b style={{ fontSize:11 }}>{triScopeShort(target, p.ligacao)}</b>
+                      <span className="badge" style={{ background:t.color, color:'#fff' }}>{load.type}</span>
+                      {targetLoads.length > 1 && <span style={{ fontSize:10, color:'var(--c-text-muted)' }}>+{targetLoads.length - 1}</span>}
+                      <button className="btn btn-danger btn-sm" style={{ marginLeft:'auto', fontSize:9, padding:'2px 6px' }} onClick={()=>removeDirectTargetLoads(target)}>
+                        Remover
+                      </button>
+                    </div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:7 }}>
+                      {TRI_LOAD_TYPES.map(type => (
+                        <button key={type.id} className="btn btn-sm"
+                          style={{ fontSize:8.5, padding:'2px 5px',
+                            background:load.type===type.id?type.color:'transparent',
+                            color:load.type===type.id?'#fff':'var(--c-text)',
+                            border:`1px solid ${type.color}` }}
+                          onClick={()=>edit('type', type.id)}>
+                          {type.id}
+                        </button>
+                      ))}
+                    </div>
+                    <PField label="Qtd." unit="" value={load.qty} onChange={v=>edit('qty',v)} />
+                    <LoadParamFields lt={load.type} prefix="" vals={load} onChange={edit}/>
+                  </div>
+                )
+              })}
+            </Section>
+          )}
 
           <Section title="Adicionar Carga">
             <div style={{ display:'grid', gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:5, marginBottom:8 }}>
