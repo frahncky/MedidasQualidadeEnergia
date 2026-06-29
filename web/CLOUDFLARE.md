@@ -24,9 +24,7 @@ ou Environment variables, e crie essa variavel para Production.
 O `wrangler.toml` fica nesta pasta porque o Cloudflare executa o build dentro de `web`.
 O Vite gera `dist/`, e o Wrangler publica exatamente esse diretorio como assets estaticos.
 
-Nao adicione `public/_redirects` para SPA neste modo. O fallback ja e feito por:
-
-```toml
-[assets]
-not_found_handling = "single-page-application"
-```
+Nao adicione `public/_redirects` nem `not_found_handling = "single-page-application"`.
+O app usa navegacao por estado (tabs), sem roteamento de URL. O Cloudflare serve
+`index.html` automaticamente para `/`. A opcao SPA causava loop infinito na
+validacao do wrangler 4.105.0+ (erro 100324).
