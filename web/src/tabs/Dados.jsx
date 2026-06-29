@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
@@ -81,6 +81,82 @@ const PREVIEW_ROWS = Array.from({ length: 20 }, (_, i) => ({
   FP: +(0.92 + Math.random()*0.04).toFixed(3),
 }))
 
+function detectDelimiter(header) {
+  const candidates = [',', ';', '\t']
+  return candidates
+    .map(delimiter => ({ delimiter, count: header.split(delimiter).length - 1 }))
+    .sort((a, b) => b.count - a.count)[0]?.delimiter ?? ','
+}
+
+function splitDelimitedLine(line, delimiter) {
+  const cells = []
+  let current = ''
+  let quoted = false
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i]
+    const next = line[i + 1]
+    if (char === '"' && quoted && next === '"') {
+      current += '"'
+      i += 1
+    } else if (char === '"') {
+      quoted = !quoted
+    } else if (char === delimiter && !quoted) {
+      cells.push(current.trim())
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  cells.push(current.trim())
+  return cells
+}
+
+function parseCsvText(text, maxPreviewRows = 80) {
+  const normalized = String(text ?? '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n').filter(line => line.trim().length > 0)
+  if (lines.length < 2) throw new Error('Arquivo CSV sem linhas de dados')
+  const delimiter = detectDelimiter(lines[0])
+  const columns = splitDelimitedLine(lines[0], delimiter).map((column, index) => column || `Coluna ${index + 1}`)
+  const rows = lines.slice(1, maxPreviewRows + 1).map(line => {
+    const cells = splitDelimitedLine(line, delimiter)
+    return Object.fromEntries(columns.map((column, index) => [column, cells[index] ?? '']))
+  })
+  return { columns, rows, totalRows: lines.length - 1, delimiter }
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = bytes
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+  return `${size.toLocaleString('pt-BR', { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`
+}
+
+function isCsvLike(file) {
+  const name = file?.name?.toLowerCase() ?? ''
+  return name.endsWith('.csv') || file?.type === 'text/csv' || file?.type === 'application/vnd.ms-excel'
+}
+
+function suggestColumn(field, fallback, columns) {
+  if (!columns.length) return fallback
+  const aliases = {
+    Timestamp: ['timestamp', 'datahora', 'data_hora', 'datetime', 'time'],
+    Va: ['va', 'va_kv', 'v_a', 'tensao_a'],
+    Vb: ['vb', 'vb_kv', 'v_b', 'tensao_b'],
+    Vc: ['vc', 'vc_kv', 'v_c', 'tensao_c'],
+    Ia: ['ia', 'ia_a', 'i_a', 'corrente_a'],
+    Ib: ['ib', 'ib_a', 'i_b', 'corrente_b'],
+    Ic: ['ic', 'ic_a', 'i_c', 'corrente_c'],
+    Frequência: ['frequencia', 'freq', 'freq_hz', 'frequency'],
+    P: ['p', 'p_kw', 'potencia_ativa'],
+    Q: ['q', 'q_kvar', 'potencia_reativa'],
+  }[field] ?? [fallback]
+  return columns.find(column => aliases.includes(column.toLowerCase().replace(/[^a-z0-9_]/g, ''))) ?? columns[0]
+}
 export default function Dados() {
   const toast = useToast()
   const [format, setFormat] = useState(null)
@@ -91,26 +167,77 @@ export default function Dados() {
   const [mappingTemplate, setMappingTemplate] = useState('Padrão - PQ e Energia')
   const [dropHover, setDropHover] = useState(false)
   const [fileName, setFileName] = useState('')
+  const [parsedData, setParsedData] = useState({ columns: [], rows: [], totalRows: 0, delimiter: '' })
+  const [fileMeta, setFileMeta] = useState({ size: '', encoding: 'UTF-8' })
+  const [parseError, setParseError] = useState('')
   const fileInputRef = useRef(null)
+
+  function resetParsedData() {
+    setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
+    setFileMeta({ size: '', encoding: 'UTF-8' })
+    setParseError('')
+  }
 
   function simulateLoad(name = 'arquivo_dados.csv') {
     setFileName(name)
+    resetParsedData()
     setLoading(true)
     setLoaded(false)
     setChecksRun(false)
     setTimeout(() => { setLoading(false); setLoaded(true) }, 900)
   }
 
+  function loadFile(file) {
+    setFileName(file.name)
+    setLoading(true)
+    setLoaded(false)
+    setChecksRun(false)
+    setParseError('')
+    setFileMeta({ size: formatBytes(file.size), encoding: 'UTF-8' })
+
+    if (!isCsvLike(file)) {
+      setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
+      setTimeout(() => {
+        setLoading(false)
+        setLoaded(true)
+        toast('Formato carregado com prévia simulada. CSV possui prévia real nesta versão.', 'info')
+      }, 700)
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const parsed = parseCsvText(reader.result)
+        setParsedData(parsed)
+        setLoaded(true)
+        toast(`CSV importado: ${parsed.totalRows.toLocaleString('pt-BR')} registros`, 'success')
+      } catch (error) {
+        setParseError(error.message || 'Falha ao ler arquivo CSV')
+        setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
+        toast('Não foi possível montar a prévia do CSV', 'error')
+      } finally {
+        setLoading(false)
+      }
+    }
+    reader.onerror = () => {
+      setLoading(false)
+      setParseError('Erro de leitura do arquivo')
+      toast('Erro de leitura do arquivo', 'error')
+    }
+    reader.readAsText(file)
+  }
+
   function handleFileChange(e) {
     const f = e.target.files?.[0]
-    if (f) simulateLoad(f.name)
+    if (f) loadFile(f)
   }
 
   function handleDrop(e) {
     e.preventDefault()
     setDropHover(false)
     const f = e.dataTransfer?.files?.[0]
-    if (f) simulateLoad(f.name)
+    if (f) loadFile(f)
   }
 
   function handleRunChecks() {
@@ -122,7 +249,39 @@ export default function Dados() {
     setLoaded(false)
     setTimeout(() => setLoaded(true), 400)
   }
-
+  const hasParsedData = parsedData.columns.length > 0
+  const visibleColumns = useMemo(() => parsedData.columns.slice(0, 10), [parsedData.columns])
+  const qualityChecks = useMemo(() => {
+    if (!hasParsedData) return QUALITY_CHECKS
+    const totalCells = parsedData.rows.length * parsedData.columns.length
+    const missingCells = parsedData.rows.reduce((sum, row) => (
+      sum + parsedData.columns.filter(column => String(row[column] ?? '').trim() === '').length
+    ), 0)
+    const numericCells = parsedData.rows.reduce((sum, row) => (
+      sum + parsedData.columns.filter(column => {
+        const value = String(row[column] ?? '').replace(',', '.').trim()
+        return value !== '' && Number.isFinite(Number(value))
+      }).length
+    ), 0)
+    const missingPct = totalCells ? (missingCells / totalCells) * 100 : 0
+    const numericPct = totalCells ? (numericCells / totalCells) * 100 : 0
+    const timestampColumn = parsedData.columns.find(column => /data|hora|time|timestamp/i.test(column))
+    return [
+      { name: 'Campos detectados', ok: parsedData.columns.length >= 6, val: `${parsedData.columns.length}`, tone: parsedData.columns.length >= 6 ? 'green' : 'warn' },
+      { name: 'Registros lidos', ok: parsedData.totalRows > 0, val: parsedData.totalRows.toLocaleString('pt-BR'), tone: 'green' },
+      { name: 'Timestamps prováveis', ok: Boolean(timestampColumn), val: timestampColumn || 'Não detectado', tone: timestampColumn ? 'green' : 'warn' },
+      { name: 'Valores faltantes', ok: missingPct < 1, val: `${missingPct.toFixed(2).replace('.', ',')}%`, tone: missingPct < 1 ? 'green' : 'warn' },
+      { name: 'Dados numéricos', ok: numericPct > 45, val: `${numericPct.toFixed(1).replace('.', ',')}%`, tone: numericPct > 45 ? 'green' : 'warn' },
+      { name: 'Separador', ok: true, val: parsedData.delimiter === '\t' ? 'Tab' : parsedData.delimiter, tone: 'green' },
+    ]
+  }, [hasParsedData, parsedData])
+  const dataQualityPct = hasParsedData
+    ? Math.max(72, Math.round((qualityChecks.filter(check => check.tone === 'green').length / qualityChecks.length) * 100))
+    : 98
+  const recordsLabel = hasParsedData ? parsedData.totalRows.toLocaleString('pt-BR') : '864.000'
+  const columnsLabel = hasParsedData ? parsedData.columns.length.toLocaleString('pt-BR') : '10'
+  const delimiterLabel = hasParsedData ? (parsedData.delimiter === '\t' ? 'Tab' : parsedData.delimiter) : 'Detectado'
+  const cleanExportRows = hasParsedData ? parsedData.rows : PREVIEW_ROWS
   return (
     <div style={{ minHeight: 1080, display: 'grid', gridTemplateColumns: '320px minmax(720px, 1fr) 360px', gap: 14, padding: 14, overflow: 'visible' }}>
 
@@ -188,7 +347,15 @@ export default function Dados() {
               {loading ? (
                 <div style={{ color: 'var(--c-primary)', fontWeight: 700 }}>⏳ Carregando {fileName}…</div>
               ) : loaded ? (
-                <div style={{ color: 'var(--c-success)', fontWeight: 700 }}>✓ {fileName} carregado com sucesso</div>
+                <>
+                  <div style={{ color: 'var(--c-success)', fontWeight: 700 }}>✓ {fileName} carregado com sucesso</div>
+                  {hasParsedData && (
+                    <div style={{ color: 'var(--c-text-muted)', fontSize: 11, marginTop: 4 }}>
+                      {recordsLabel} registros · {columnsLabel} colunas · separador {delimiterLabel}
+                    </div>
+                  )}
+                  {parseError && <div style={{ color: 'var(--c-danger)', fontSize: 11, marginTop: 4 }}>{parseError}</div>}
+                </>
               ) : (
                 <>
                   <div className="drop-zone__title">Arraste e solte arquivos aqui ou clique para selecionar</div>
@@ -230,7 +397,11 @@ export default function Dados() {
                 {FIELDS.map(([field, col, type, status]) => (
                   <tr key={field}>
                     <td style={{ fontWeight: 700 }}>{field}</td>
-                    <td><select className="form-select" style={{ height: 24 }}><option>{col}</option></select></td>
+                    <td>
+                      <select className="form-select" style={{ height: 24 }} defaultValue={suggestColumn(field, col, parsedData.columns)}>
+                        {[suggestColumn(field, col, parsedData.columns), ...parsedData.columns.filter(column => column !== suggestColumn(field, col, parsedData.columns))].map(option => <option key={option}>{option}</option>)}
+                      </select>
+                    </td>
                     <td>{field[0] === 'V' ? 'kV' : field[0] === 'I' ? 'A' : field === 'Frequência' ? 'Hz' : '-'}</td>
                     <td>{type}</td>
                     <td><span className={status === 'Obrigatório' ? 'badge badge-blue' : 'badge badge-green'}>{status}</span></td>
@@ -249,12 +420,28 @@ export default function Dados() {
             </div>
             <div className="scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
               <table className="tbl">
-                <thead><tr><th>#</th><th>Timestamp</th><th>Va</th><th>Vb</th><th>Vc</th><th>Ia</th><th>Ib</th><th>Ic</th><th>Freq</th><th>P</th></tr></thead>
-                <tbody>
-                  {PREVIEW_BASE.map(r => (
-                    <tr key={r.n}><td>{r.n}</td><td>{r.ts}</td><td>{r.va}</td><td>{r.vb}</td><td>{r.vc}</td><td>{r.ia}</td><td>{r.ib}</td><td>{r.ic}</td><td>{r.f}</td><td>{r.p}</td></tr>
-                  ))}
-                </tbody>
+                {hasParsedData ? (
+                  <>
+                    <thead><tr><th>#</th>{visibleColumns.map(column => <th key={column}>{column}</th>)}</tr></thead>
+                    <tbody>
+                      {parsedData.rows.slice(0, 20).map((row, i) => (
+                        <tr key={`${i}-${row[visibleColumns[0]] ?? ''}`}>
+                          <td>{i + 1}</td>
+                          {visibleColumns.map(column => <td key={column}>{row[column] || '—'}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </>
+                ) : (
+                  <>
+                    <thead><tr><th>#</th><th>Timestamp</th><th>Va</th><th>Vb</th><th>Vc</th><th>Ia</th><th>Ib</th><th>Ic</th><th>Freq</th><th>P</th></tr></thead>
+                    <tbody>
+                      {PREVIEW_BASE.map(r => (
+                        <tr key={r.n}><td>{r.n}</td><td>{r.ts}</td><td>{r.va}</td><td>{r.vb}</td><td>{r.vc}</td><td>{r.ia}</td><td>{r.ib}</td><td>{r.ic}</td><td>{r.f}</td><td>{r.p}</td></tr>
+                      ))}
+                    </tbody>
+                  </>
+                )}
               </table>
             </div>
           </div>
@@ -280,11 +467,12 @@ export default function Dados() {
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <InfoPanel title="Metadados do Arquivo" rows={[
           ['Arquivo', loaded ? fileName : '—'],
-          ['Origem', 'Local'],
-          ['Tamanho', loaded ? '128,4 MB' : '—'],
-          ['Registros', loaded ? '864.000' : '—'],
-          ['Período', loaded ? '31/05/2024 00:00 até 23:59' : '—'],
-          ['Codificação', 'UTF-8'],
+          ['Origem', hasParsedData ? 'Arquivo local' : 'Local'],
+          ['Tamanho', loaded ? (fileMeta.size || '128,4 MB') : '—'],
+          ['Registros', loaded ? recordsLabel : '—'],
+          ['Colunas', loaded ? columnsLabel : '—'],
+          ['Separador', loaded ? delimiterLabel : '—'],
+          ['Codificação', fileMeta.encoding || 'UTF-8'],
         ]} />
 
         <div className="panel">
@@ -294,16 +482,16 @@ export default function Dados() {
           <div className="panel__body">
             {loaded && checksRun ? (
               <>
-                {QUALITY_CHECKS.map(({ name, ok, val, tone }) => (
+                {qualityChecks.map(({ name, ok, val, tone }) => (
                   <div key={name} style={{ display: 'flex', marginBottom: 8, fontSize: 12 }}>
                     <span style={{ color: tone === 'green' ? '#16a34a' : '#d97706', fontWeight: 800, width: 20 }}>{tone === 'green' ? 'OK' : '!'}</span>
                     <span style={{ flex: 1 }}>{name}</span><b>{val}</b>
                   </div>
                 ))}
                 <div className="progress-track">
-                  <div style={{ width: '98%', height: '100%', borderRadius: 8, background: '#16a34a' }} />
+                  <div style={{ width: `${dataQualityPct}%`, height: '100%', borderRadius: 8, background: '#16a34a' }} />
                 </div>
-                <div style={{ textAlign: 'right', color: '#16a34a', fontWeight: 800, marginTop: 4 }}>98,2% qualidade</div>
+                <div style={{ textAlign: 'right', color: '#16a34a', fontWeight: 800, marginTop: 4 }}>{dataQualityPct}% qualidade</div>
               </>
             ) : loaded ? (
               <div style={{ color: '#64748b', textAlign: 'center', padding: 12 }}>Clique em <b>Executar</b> para verificar a qualidade dos dados.</div>
@@ -333,7 +521,7 @@ export default function Dados() {
             ))}
             <button className="btn btn-primary btn-sm" style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
               disabled={!loaded}
-              onClick={() => { exportCSV(PREVIEW_ROWS, 'dados_limpos.csv'); toast('Limpeza aplicada — arquivo CSV exportado', 'success') }}>
+              onClick={() => { exportCSV(cleanExportRows, 'dados_limpos.csv'); toast('Limpeza aplicada — arquivo CSV exportado', 'success') }}>
               Aplicar Limpeza
             </button>
           </div>
