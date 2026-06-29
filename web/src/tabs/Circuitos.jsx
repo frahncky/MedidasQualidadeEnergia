@@ -332,6 +332,164 @@ function calcTriUnbalD(p) {
   }
 }
 
+const TRI_DEFAULT_CIRCUIT_LOADS = [
+  { id: 1, scope: 'ABC', type: 'RL', qty: 1, R: '10', L: '0,05', C: '0,001', Cuf: '50', Pn: '37', eta: '92', FPm: '0,87' },
+]
+
+const TRI_SCOPE_LABELS = {
+  ABC: 'Três fases',
+  A: 'Fase A',
+  B: 'Fase B',
+  C: 'Fase C',
+  AB: 'Ramo AB',
+  BC: 'Ramo BC',
+  CA: 'Ramo CA',
+}
+
+function triScopeOptions(ligacao, balanco) {
+  if (balanco === 'eq') return [{ id: 'ABC', label: 'Três fases' }]
+  return ligacao === 'Y'
+    ? [{ id: 'ABC', label: 'Três fases' }, { id: 'A', label: 'Fase A' }, { id: 'B', label: 'Fase B' }, { id: 'C', label: 'Fase C' }]
+    : [{ id: 'ABC', label: 'Três ramos' }, { id: 'AB', label: 'Ramo AB' }, { id: 'BC', label: 'Ramo BC' }, { id: 'CA', label: 'Ramo CA' }]
+}
+
+function triLoadTargets(load, ligacao) {
+  if (load.scope === 'ABC') return ligacao === 'Y' ? ['A', 'B', 'C'] : ['AB', 'BC', 'CA']
+  return [load.scope]
+}
+
+function triLoadVals(load) {
+  return {
+    R: load.R,
+    L: load.L,
+    C: load.C,
+    Cuf: load.Cuf,
+    Pn: load.Pn,
+    eta: load.eta,
+    FPm: load.FPm,
+  }
+}
+
+function triLoadAdmittance(load, f, VL) {
+  const Z = phaseZ(load.type, triLoadVals(load), f, VL)
+  const den = Z[0]**2 + Z[1]**2 || 1e-30
+  const qty = Math.max(1, Math.round(parseNum(load.qty) || 1))
+  return [qty * Z[0] / den, -qty * Z[1] / den]
+}
+
+function triBranchAdmittance(loads, target, ligacao, f, VL) {
+  return loads.reduce((sum, load) => {
+    if (!triLoadTargets(load, ligacao).includes(target)) return sum
+    return cx.add(sum, triLoadAdmittance(load, f, VL))
+  }, [0, 0])
+}
+
+function triBranchLoadCopies(loads, target, ligacao) {
+  return loads.flatMap(load => {
+    if (!triLoadTargets(load, ligacao).includes(target)) return []
+    const qty = Math.max(1, Math.round(parseNum(load.qty) || 1))
+    return Array.from({ length: qty }, (_, index) => ({ ...load, copy: index + 1, target }))
+  })
+}
+
+function calcTriCircuitLoads(p, loads) {
+  const ligacao = p.ligacao
+  const VL = parseNum(p.VL) || 13800
+  const f = parseNum(p.freq) || 60
+
+  if (ligacao === 'Y') {
+    const V_ph = VL / Math.sqrt(3)
+    const phases = ['A', 'B', 'C']
+    const angles = [0, -2*Math.PI/3, 2*Math.PI/3]
+    const results = phases.map((ph, index) => {
+      const Y = triBranchAdmittance(loads, ph, ligacao, f, VL)
+      const V = cx.polar(V_ph, angles[index])
+      const I = cx.mul(V, Y)
+      const P = cx.P(V, I)
+      const Q = cx.Q(V, I)
+      const S = cx.mag(V) * cx.mag(I)
+      return {
+        ph,
+        target: ph,
+        V,
+        I,
+        P,
+        Q,
+        S,
+        I_mag: cx.mag(I),
+        FP: S > 1e-9 ? Math.abs(P) / S : 1,
+        phi: Math.atan2(Q, P || 1e-30),
+        loads: triBranchLoadCopies(loads, ph, ligacao),
+      }
+    })
+    const IN = cx.neg(cx.add(cx.add(results[0].I, results[1].I), results[2].I))
+    const P_tot = results.reduce((sum, r) => sum + r.P, 0)
+    const Q_tot = results.reduce((sum, r) => sum + r.Q, 0)
+    const S_tot = Math.sqrt(P_tot**2 + Q_tot**2)
+    return {
+      ligacao,
+      VL,
+      V_ph,
+      results,
+      IN,
+      P_tot,
+      Q_tot,
+      S_tot,
+      FP_tot: S_tot > 1e-9 ? Math.abs(P_tot) / S_tot : 1,
+      lineCurrents: { A: results[0].I, B: results[1].I, C: results[2].I },
+    }
+  }
+
+  const V_AB = cx.polar(VL, Math.PI/6)
+  const V_BC = cx.polar(VL, Math.PI/6 - 2*Math.PI/3)
+  const V_CA = cx.polar(VL, Math.PI/6 + 2*Math.PI/3)
+  const branchDefs = [
+    ['AB', V_AB],
+    ['BC', V_BC],
+    ['CA', V_CA],
+  ]
+  const branches = branchDefs.map(([target, V]) => {
+    const Y = triBranchAdmittance(loads, target, ligacao, f, VL)
+    const I = cx.mul(V, Y)
+    const P = cx.P(V, I)
+    const Q = cx.Q(V, I)
+    const S = cx.mag(V) * cx.mag(I)
+    return {
+      target,
+      V,
+      I,
+      P,
+      Q,
+      S,
+      I_mag: cx.mag(I),
+      FP: S > 1e-9 ? Math.abs(P) / S : 1,
+      phi: Math.atan2(Q, P || 1e-30),
+      loads: triBranchLoadCopies(loads, target, ligacao),
+    }
+  })
+  const brAB = branches[0]
+  const brBC = branches[1]
+  const brCA = branches[2]
+  const IA = cx.sub(brAB.I, brCA.I)
+  const IB = cx.sub(brBC.I, brAB.I)
+  const IC = cx.sub(brCA.I, brBC.I)
+  const P_tot = branches.reduce((sum, r) => sum + r.P, 0)
+  const Q_tot = branches.reduce((sum, r) => sum + r.Q, 0)
+  const S_tot = Math.sqrt(P_tot**2 + Q_tot**2)
+  return {
+    ligacao,
+    VL,
+    V_ph: VL / Math.sqrt(3),
+    branches,
+    results: branches,
+    P_tot,
+    Q_tot,
+    S_tot,
+    FP_tot: S_tot > 1e-9 ? Math.abs(P_tot) / S_tot : 1,
+    lineCurrents: { A: IA, B: IB, C: IC },
+  }
+}
+
 /* ─── CA Trifásico — system-level constants & calc ───────────────────────── */
 
 const TRI_DEFAULT = {
@@ -1280,12 +1438,105 @@ function TriMountedCircuitSvg({ p, rBal, rUBY, rUBD }) {
   )
 }
 
+function TriCircuitBuilderSvg({ p, circuit, loads }) {
+  const isY = p.ligacao === 'Y'
+  const colors = { A:'#dc2626', B:'#16a34a', C:'#2563eb', N:'#64748b', AB:'#dc2626', BC:'#16a34a', CA:'#2563eb' }
+  const rows = isY ? ['A', 'B', 'C'] : ['AB', 'BC', 'CA']
+  const copiesByTarget = rows.map(target => ({
+    target,
+    loads: triBranchLoadCopies(loads, target, p.ligacao),
+  }))
+  const maxLoads = Math.max(1, ...copiesByTarget.map(row => row.loads.length))
+  const W = Math.max(760, 320 + maxLoads * 126)
+  const H = isY ? 320 : 300
+  const y = isY
+    ? { A:64, B:112, C:160, N:242 }
+    : { A:58, B:108, C:158, AB:84, BC:160, CA:236 }
+
+  function LoadAt({ load, target, index, yPos }) {
+    const x = 305 + index * 122
+    const spec = { type: triType(load.type), vals: triLoadVals(load) }
+    return (
+      <g>
+        {isY ? (
+          <>
+            <line x1={x} y1={y[target]} x2={x} y2={y.N} stroke="var(--c-text)" strokeWidth="2" />
+            <circle cx={x} cy={y[target]} r="4" fill={colors[target]} />
+            <circle cx={x} cy={y.N} r="4" fill={colors.N} />
+          </>
+        ) : (
+          <>
+            <line x1={x - 50} y1={yPos} x2={x + 50} y2={yPos} stroke={colors[target]} strokeWidth="2" />
+            <circle cx={x - 50} cy={yPos} r="4" fill={colors[target]} />
+            <circle cx={x + 50} cy={yPos} r="4" fill={colors[target]} />
+          </>
+        )}
+        <TriLoadBlock x={x} y={isY ? (y[target] + y.N) / 2 : yPos} spec={spec} label={`${target}${load.copy > 1 ? `.${load.copy}` : ''}`} />
+      </g>
+    )
+  }
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:W, height:H, maxWidth:'none', display:'block' }}>
+      <rect x="10" y="10" width={W-20} height={H-20} rx="8" fill="var(--c-surface-2)" stroke="var(--c-border)" />
+      <text x="28" y="34" fontSize="12" fontWeight="800" fill="var(--c-text)">
+        Circuito montado · {isY ? 'Y Estrela' : 'Δ Triângulo'} · {p.balanco === 'eq' ? 'equilibrado' : 'desequilibrado'}
+      </text>
+      <circle cx="70" cy={isY ? 145 : 116} r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
+      <text x="70" y={isY ? 152 : 123} textAnchor="middle" fontSize="24">~</text>
+      <text x="70" y={isY ? 194 : 164} textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
+
+      {isY ? (
+        <>
+          {['A','B','C','N'].map(ph => (
+            <g key={ph}>
+              <line x1="110" y1={y[ph]} x2={W-45} y2={y[ph]} stroke={colors[ph]} strokeWidth={ph === 'N' ? 2 : 3} strokeDasharray={ph === 'N' ? '5 4' : undefined} />
+              <text x="124" y={y[ph]-8} fontSize="13" fontWeight="800" fill={colors[ph]}>{ph}</text>
+            </g>
+          ))}
+          {copiesByTarget.map(row => row.loads.map((load, index) => (
+            <LoadAt key={`${row.target}-${load.id}-${index}`} load={load} target={row.target} index={index} />
+          )))}
+        </>
+      ) : (
+        <>
+          {['A','B','C'].map(ph => (
+            <g key={ph}>
+              <line x1="110" y1={y[ph]} x2={W-45} y2={y[ph]} stroke={colors[ph]} strokeWidth="3" />
+              <text x="124" y={y[ph]-8} fontSize="13" fontWeight="800" fill={colors[ph]}>{ph}</text>
+            </g>
+          ))}
+          {copiesByTarget.map(row => (
+            <g key={row.target}>
+              <text x="128" y={y[row.target]+4} fontSize="12" fontWeight="800" fill={colors[row.target]}>{row.target}</text>
+              <line x1="168" y1={y[row.target]} x2={W-45} y2={y[row.target]} stroke={colors[row.target]} strokeWidth="2" strokeDasharray="5 4" />
+              {row.loads.map((load, index) => <LoadAt key={`${row.target}-${load.id}-${index}`} load={load} target={row.target} index={index} yPos={y[row.target]} />)}
+            </g>
+          ))}
+        </>
+      )}
+
+      {loads.length === 0 && (
+        <text x={W/2} y={H/2} textAnchor="middle" fontSize="13" fontWeight="700" fill="var(--c-text-muted)">
+          Adicione uma carga para montar o circuito trifásico
+        </text>
+      )}
+      <text x="28" y={H-24} fontSize="11" fill="var(--c-text-muted)">
+        P {fmt(circuit.P_tot/1000,2)} kW · Q {fmt(circuit.Q_tot/1000,2)} kvar · FP {fmt(circuit.FP_tot,4)}
+      </text>
+    </svg>
+  )
+}
+
 /* ─── SubCATri ────────────────────────────────────────────────────────────── */
 
 function SubCATri() {
   const [mode, setMode]     = useState('analise')   // 'analise' | 'editor'
   const [p, setP]           = useState(DEFAULT_TRI_LOADS)
+  const [triLoads, setTriLoads] = useState(TRI_DEFAULT_CIRCUIT_LOADS)
+  const [loadDraft, setLoadDraft] = useState({ scope:'ABC', type:'RL', qty:'1', R:'10', L:'0,05', C:'0,001', Cuf:'50', Pn:'37', eta:'92', FPm:'0,87' })
   const sp = (k, v) => setP(prev => ({...prev, [k]: v}))
+  const sd = (k, v) => setLoadDraft(prev => ({ ...prev, [k]: v }))
 
   // System-level legacy editor state
   const [params, setParams] = useState(TRI_DEFAULT)
@@ -1296,38 +1547,47 @@ function SubCATri() {
   const errCount  = msgs.filter(m => m.sev === 'Erro').length
   const warnCount = msgs.filter(m => m.sev === 'Aviso').length
 
-  // Equilibrada calcs
-  const rBal  = useMemo(() => calcTriBal(p), [p])
-  // Desequilibrada calcs
-  const rUBY  = useMemo(() => calcTriUnbalY(p), [p])
-  const rUBD  = useMemo(() => calcTriUnbalD(p), [p])
-
   const isEq  = p.balanco === 'eq'
   const isY   = p.ligacao === 'Y'
+  const scopeOptions = triScopeOptions(p.ligacao, p.balanco)
+  const activeScope = scopeOptions.some(option => option.id === loadDraft.scope) ? loadDraft.scope : scopeOptions[0].id
+  const triCircuit = useMemo(() => calcTriCircuitLoads(p, triLoads), [p, triLoads])
+
+  function addTriLoad() {
+    const id = Math.max(0, ...triLoads.map(load => load.id)) + 1
+    setTriLoads(prev => [...prev, { ...loadDraft, scope: activeScope, id }])
+  }
+
+  function changeTriLoadQty(id, delta) {
+    setTriLoads(prev => prev.flatMap(load => {
+      if (load.id !== id) return [load]
+      const qty = Math.max(0, Math.round((parseNum(load.qty) || 1) + delta))
+      return qty > 0 ? [{ ...load, qty: String(qty) }] : []
+    }))
+  }
+
+  function removeTriLoad(id) {
+    setTriLoads(prev => prev.filter(load => load.id !== id))
+  }
 
   // Resolve unified phasor data
   const phasors = useMemo(() => {
-    if (isEq) {
-      return { VA_I: rBal.phaseA, VB_I: rBal.phaseB, VC_I: rBal.phaseC, V_ph: rBal.V_ph }
-    }
     if (isY) {
-      const rs = rUBY.results
+      const rs = triCircuit.results
       return {
         VA_I: { V: rs[0].V, I: rs[0].I }, VB_I: { V: rs[1].V, I: rs[1].I }, VC_I: { V: rs[2].V, I: rs[2].I },
-        V_ph: parseNum(p.VL)/Math.sqrt(3)
+        V_ph: triCircuit.V_ph
       }
     }
     // Δ: use line voltages as V, line currents as I
-    const VL = parseNum(p.VL) || 13800
     return {
-      VA_I: { V: cx.polar(VL/Math.sqrt(3), 0),           I: rUBD.IA },
-      VB_I: { V: cx.polar(VL/Math.sqrt(3), -2*Math.PI/3), I: rUBD.IB },
-      VC_I: { V: cx.polar(VL/Math.sqrt(3),  2*Math.PI/3), I: rUBD.IC },
-      V_ph: VL/Math.sqrt(3)
+      VA_I: { V: cx.polar(triCircuit.V_ph, 0),           I: triCircuit.lineCurrents.A },
+      VB_I: { V: cx.polar(triCircuit.V_ph, -2*Math.PI/3), I: triCircuit.lineCurrents.B },
+      VC_I: { V: cx.polar(triCircuit.V_ph,  2*Math.PI/3), I: triCircuit.lineCurrents.C },
+      V_ph: triCircuit.V_ph
     }
-  }, [isEq, isY, rBal, rUBY, rUBD, p.VL])
+  }, [isY, triCircuit])
 
-  const lt = TRI_LOAD_TYPES.find(t => t.id === p.loadType) ?? TRI_LOAD_TYPES[1]
   const pLabel = isEq ? `${isY?'Y':'Δ'} Eq.` : `${isY?'Y':'Δ'} Deseq.`
 
   if (mode === 'editor') {
@@ -1481,41 +1741,54 @@ function SubCATri() {
             </div>
           </Section>
 
-          {isEq ? (
-            /* Equilibrada: single load selector + params */
-            <>
-              <Section title="Tipo de Carga">
-                {TRI_LOAD_TYPES.map(t=>(
-                  <button key={t.id} className="btn btn-sm"
-                    style={{ width:'100%', textAlign:'left', marginBottom:4,
-                      background:p.loadType===t.id?t.color:'transparent',
-                      color:p.loadType===t.id?'#fff':'var(--c-text)',
-                      border:`1px solid ${t.color}` }}
-                    onClick={()=>sp('loadType',t.id)}>{t.label}</button>
-                ))}
-              </Section>
-              <Section title={`Parâmetros — ${lt.label}`}>
-                <LoadParamFields lt={p.loadType} prefix="" vals={p} onChange={sp}/>
-              </Section>
-            </>
-          ) : (
-            /* Desequilibrada: 3 phases each with their own load type + params */
-            ['A','B','C'].map(ph=>(
-              <Section key={ph} title={`Fase ${ph}`}>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:6 }}>
-                  {TRI_LOAD_TYPES.map(t=>(
-                    <button key={t.id} className="btn btn-sm"
-                      style={{ fontSize:9, padding:'2px 5px',
-                        background:p[ph+'_lt']===t.id?t.color:'transparent',
-                        color:p[ph+'_lt']===t.id?'#fff':'var(--c-text)',
-                        border:`1px solid ${t.color}` }}
-                      onClick={()=>sp(ph+'_lt',t.id)}>{t.id}</button>
-                  ))}
+          <Section title="Adicionar Carga">
+            <PSelect label="Aplicar em" value={activeScope} onChange={v=>sd('scope',v)} options={scopeOptions.map(option => option.id)} />
+            <div style={{ fontSize:10, color:'var(--c-text-muted)', margin:'-4px 0 8px 0' }}>
+              {TRI_SCOPE_LABELS[activeScope] || activeScope}
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:8 }}>
+              {TRI_LOAD_TYPES.map(t=>(
+                <button key={t.id} className="btn btn-sm"
+                  style={{ fontSize:9, padding:'2px 6px',
+                    background:loadDraft.type===t.id?t.color:'transparent',
+                    color:loadDraft.type===t.id?'#fff':'var(--c-text)',
+                    border:`1px solid ${t.color}` }}
+                  onClick={()=>sd('type',t.id)}>{t.id}</button>
+              ))}
+            </div>
+            <PField label="Quantidade" unit="" value={loadDraft.qty} onChange={v=>sd('qty',v)} />
+            <LoadParamFields lt={loadDraft.type} prefix="" vals={loadDraft} onChange={sd}/>
+            <button className="btn btn-primary btn-sm" style={{ width:'100%', justifyContent:'center', marginTop:6 }} onClick={addTriLoad}>
+              Adicionar ao circuito
+            </button>
+          </Section>
+
+          <Section title="Cargas Montadas">
+            <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+              <button className="btn btn-ghost btn-sm" style={{ flex:1 }} onClick={()=>setTriLoads(TRI_DEFAULT_CIRCUIT_LOADS)}>Exemplo</button>
+              <button className="btn btn-ghost btn-sm" style={{ flex:1 }} onClick={()=>setTriLoads([])}>Limpar</button>
+            </div>
+            {triLoads.length === 0 ? (
+              <div style={{ fontSize:11, color:'var(--c-text-muted)', lineHeight:1.5 }}>Nenhuma carga adicionada.</div>
+            ) : triLoads.map(load => {
+              const t = triType(load.type)
+              return (
+                <div key={load.id} className="surface-box" style={{ padding:8, marginBottom:6 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <span className="badge" style={{ background:t.color, color:'#fff' }}>{load.type}</span>
+                    <b style={{ fontSize:11 }}>{TRI_SCOPE_LABELS[load.scope] || load.scope}</b>
+                    <span style={{ marginLeft:'auto', fontSize:11, color:'var(--c-text-muted)' }}>x{load.qty}</span>
+                  </div>
+                  <div style={{ fontSize:10, color:'var(--c-text-muted)', margin:'5px 0' }}>{triSpecLine({ type:t, vals:triLoadVals(load) })}</div>
+                  <div style={{ display:'flex', gap:4 }}>
+                    <button className="btn btn-ghost btn-sm" onClick={()=>changeTriLoadQty(load.id, 1)}>+</button>
+                    <button className="btn btn-ghost btn-sm" onClick={()=>changeTriLoadQty(load.id, -1)}>-</button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>removeTriLoad(load.id)}>Remover</button>
+                  </div>
                 </div>
-                <LoadParamFields lt={p[ph+'_lt']||'RL'} prefix={ph} vals={p} onChange={sp}/>
-              </Section>
-            ))
-          )}
+              )
+            })}
+          </Section>
         </div>
       </div>
 
@@ -1523,7 +1796,9 @@ function SubCATri() {
       <div style={{ display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
         <div className="panel" style={{ flex:'1 1 auto', minHeight:300 }}>
           <div className="panel__head">Circuito Montado — {pLabel}</div>
-          <TriMountedCircuitSvg p={p} rBal={rBal} rUBY={rUBY} rUBD={rUBD} />
+          <div style={{ height:'calc(100% - 38px)', overflow:'auto' }}>
+            <TriCircuitBuilderSvg p={p} circuit={triCircuit} loads={triLoads} />
+          </div>
         </div>
 
         <div className="panel" style={{ flex:'1 1 auto', minHeight:230 }}>
@@ -1535,25 +1810,14 @@ function SubCATri() {
         <div className="panel" style={{ flexShrink:0 }}>
           <div className="panel__head">Resumo Total</div>
           <div style={{ display:'flex', gap:16, padding:'8px 14px', fontSize:12, flexWrap:'wrap' }}>
-            {isEq ? <>
-              <span>P = <b>{fmt(rBal.P/1000,2)} kW</b></span>
-              <span>Q = <b>{fmt(rBal.Q/1000,2)} kvar</b></span>
-              <span>S = <b>{fmt(rBal.S/1000,2)} kVA</b></span>
-              <span>FP = <b style={{color:rBal.FP<0.92?'var(--c-danger)':undefined}}>{fmt(rBal.FP,4)}</b></span>
-              <span>I<sub>linha</sub> = <b>{fmt(rBal.I_line,3)} A</b></span>
-              <span style={{fontStyle:'italic',color:'var(--c-text-muted)'}}>{rBal.nat}</span>
-            </> : isY ? <>
-              <span>P = <b>{fmt(rUBY.P_tot/1000,2)} kW</b></span>
-              <span>Q = <b>{fmt(rUBY.Q_tot/1000,2)} kvar</b></span>
-              <span>S = <b>{fmt(rUBY.S_tot/1000,2)} kVA</b></span>
-              <span>FP = <b style={{color:rUBY.FP_tot<0.92?'var(--c-danger)':undefined}}>{fmt(rUBY.FP_tot,4)}</b></span>
-              <span>|IN| = <b>{fmt(cx.mag(rUBY.IN),3)} A</b></span>
-            </> : <>
-              <span>P = <b>{fmt(rUBD.P_tot/1000,2)} kW</b></span>
-              <span>Q = <b>{fmt(rUBD.Q_tot/1000,2)} kvar</b></span>
-              <span>S = <b>{fmt(rUBD.S_tot/1000,2)} kVA</b></span>
-              <span>FP = <b style={{color:rUBD.FP_tot<0.92?'var(--c-danger)':undefined}}>{fmt(rUBD.FP_tot,4)}</b></span>
-            </>}
+            <span>P = <b>{fmt(triCircuit.P_tot/1000,2)} kW</b></span>
+            <span>Q = <b>{fmt(triCircuit.Q_tot/1000,2)} kvar</b></span>
+            <span>S = <b>{fmt(triCircuit.S_tot/1000,2)} kVA</b></span>
+            <span>FP = <b style={{color:triCircuit.FP_tot<0.92&&triCircuit.S_tot>0?'var(--c-danger)':undefined}}>{fmt(triCircuit.FP_tot,4)}</b></span>
+            <span>IA = <b>{fmt(cx.mag(triCircuit.lineCurrents.A),3)} A</b></span>
+            <span>IB = <b>{fmt(cx.mag(triCircuit.lineCurrents.B),3)} A</b></span>
+            <span>IC = <b>{fmt(cx.mag(triCircuit.lineCurrents.C),3)} A</b></span>
+            {isY && <span>|IN| = <b>{fmt(cx.mag(triCircuit.IN),3)} A</b></span>}
           </div>
         </div>
       </div>
@@ -1562,54 +1826,39 @@ function SubCATri() {
       <div className="panel" style={{ display:'flex', flexDirection:'column', minHeight:0 }}>
         <div className="panel__head">Resultados por Fase</div>
         <div style={{ flex:1, overflow:'auto', padding:'10px 12px' }}>
-          {isEq ? (
+          {isY ? (
             <>
-              <Section title="Por fase (idênticas)">
-                <Result label="V fase"   value={`${fmt(rBal.V_ph,1)} V`}/>
-                <Result label="I fase"   value={`${fmt(rBal.I_ph,4)} A`}/>
-                <Result label="|Z| fase" value={`${fmt(rBal.Z_mag,3)} Ω`}/>
-                <Result label="φ"        value={`${fmt(rBal.phi*180/Math.PI,2)}°`}/>
-                <Result label="FP"       value={fmt(rBal.FP,4)} highlight={rBal.FP<0.92&&rBal.S>0}/>
-                <Result label="P fase"   value={`${fmt(rBal.P1,1)} W`}/>
-                <Result label="Q fase"   value={`${fmt(rBal.Q1,1)} var`}/>
-              </Section>
-              {p.ligacao==='D' && <Section title="Triângulo">
-                <Result label="V ramo (=VL)" value={`${fmt(rBal.VL,1)} V`}/>
-                <Result label="I ramo"       value={`${fmt(rBal.I_ph,4)} A`}/>
-                <Result label="I linha"      value={`${fmt(rBal.I_line,4)} A (√3×I_ramo)`}/>
-              </Section>}
-            </>
-          ) : isY ? (
-            <>
-              {rUBY.results.map((r,i)=>(
+              {triCircuit.results.map(r=>(
                 <Section key={r.ph} title={`Fase ${r.ph}`}>
                   <Result label="|I|" value={`${fmt(r.I_mag,4)} A`}/>
                   <Result label="φ"   value={`${fmt(r.phi*180/Math.PI,2)}°`}/>
                   <Result label="FP"  value={fmt(r.FP,4)} highlight={r.FP<0.92&&r.S>0}/>
                   <Result label="P"   value={`${fmt(r.P/1000,3)} kW`}/>
                   <Result label="Q"   value={`${fmt(r.Q/1000,3)} kvar`}/>
+                  <Result label="Cargas" value={`${r.loads.length}`} />
                 </Section>
               ))}
               <Section title="Neutro">
-                <Result label="|IN|" value={`${fmt(cx.mag(rUBY.IN),4)} A`}
-                  highlight={cx.mag(rUBY.IN)>rUBY.results[0].I_mag*0.1}/>
+                <Result label="|IN|" value={`${fmt(cx.mag(triCircuit.IN),4)} A`} />
               </Section>
             </>
           ) : (
             <>
-              {[['AB','A'],['BC','B'],['CA','C']].map(([ramo,ph])=>{
-                const br = rUBD['br'+ramo]
-                return (
-                  <Section key={ramo} title={`Ramo ${ramo}`}>
-                    <Result label="|I|" value={`${fmt(br.I_mag,4)} A`}/>
-                    <Result label="φ"   value={`${fmt(br.phi*180/Math.PI,2)}°`}/>
-                    <Result label="FP"  value={fmt(br.FP,4)} highlight={br.FP<0.92&&br.S>0}/>
-                    <Result label="P"   value={`${fmt(br.P/1000,3)} kW`}/>
-                    <Result label="Q"   value={`${fmt(br.Q/1000,3)} kvar`}/>
-                    <Result label="|I linha| " value={`${fmt(cx.mag(rUBD[`I${ph}`]),4)} A`}/>
-                  </Section>
-                )
-              })}
+              {triCircuit.results.map(br => (
+                <Section key={br.target} title={`Ramo ${br.target}`}>
+                  <Result label="|I ramo|" value={`${fmt(br.I_mag,4)} A`}/>
+                  <Result label="φ" value={`${fmt(br.phi*180/Math.PI,2)}°`}/>
+                  <Result label="FP" value={fmt(br.FP,4)} highlight={br.FP<0.92&&br.S>0}/>
+                  <Result label="P" value={`${fmt(br.P/1000,3)} kW`}/>
+                  <Result label="Q" value={`${fmt(br.Q/1000,3)} kvar`}/>
+                  <Result label="Cargas" value={`${br.loads.length}`} />
+                </Section>
+              ))}
+              <Section title="Correntes de Linha">
+                <Result label="IA" value={`${fmt(cx.mag(triCircuit.lineCurrents.A),4)} A`}/>
+                <Result label="IB" value={`${fmt(cx.mag(triCircuit.lineCurrents.B),4)} A`}/>
+                <Result label="IC" value={`${fmt(cx.mag(triCircuit.lineCurrents.C),4)} A`}/>
+              </Section>
             </>
           )}
         </div>
