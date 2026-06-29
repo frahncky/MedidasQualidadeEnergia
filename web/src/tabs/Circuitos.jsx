@@ -605,9 +605,6 @@ function SubCC() {
         </div>
       </div>
     </div>
-    <div className="circuit-sim-embed">
-      <Simulacao lockedMode="cc" embedded title="Montador de Cargas CC" />
-    </div>
     </>
   )
 }
@@ -807,9 +804,6 @@ function SubCAMono() {
           </Section>
         </div>
       </div>
-    </div>
-    <div className="circuit-sim-embed">
-      <Simulacao lockedMode="ca" embedded title="Montador de Cargas CA Monofásico" />
     </div>
     </>
   )
