@@ -6,6 +6,7 @@ import {
   calcTHD,
   generateHarmonics,
 } from '../src/utils/powerQuality.js'
+import { parseComtradeFiles } from '../src/utils/comtrade.js'
 
 test('synthetic harmonics preserve requested THD', () => {
   const harmonics = generateHarmonics(5, 100)
@@ -23,6 +24,8 @@ test('demo dataset produces advanced PQ indicators', () => {
   assert.ok(analysis.measurement.classAReady)
   assert.ok(analysis.events.some(event => event.tipo === 'Transitório'))
   assert.ok(analysis.conformity.checks.some(check => check.name === 'Inter-harmônicas V'))
+  assert.ok(analysis.recommendations.length > 0)
+  assert.ok(analysis.summary.prodistVoltage.Adequada.count >= 0)
 })
 
 test('aggregated CSV-style rows are analyzed without waveform data', () => {
@@ -41,4 +44,38 @@ test('aggregated CSV-style rows are analyzed without waveform data', () => {
   assert.equal(Math.round(analysis.summary.nominalVoltage), 220)
   assert.ok(analysis.summary.voltageCompliancePct >= 99)
   assert.equal(analysis.summary.transientCount, 0)
+})
+
+test('ASCII COMTRADE files are converted to a PQ dataset', () => {
+  const cfgText = [
+    'SE TESTE,DEV01,2013',
+    '6,6A,0D',
+    '1,VA,A,,V,1,0,0,-400,400,1,1,P',
+    '2,VB,B,,V,1,0,0,-400,400,1,1,P',
+    '3,VC,C,,V,1,0,0,-400,400,1,1,P',
+    '4,IA,A,,A,1,0,0,-1000,1000,1,1,P',
+    '5,IB,B,,A,1,0,0,-1000,1000,1,1,P',
+    '6,IC,C,,A,1,0,0,-1000,1000,1,1,P',
+    '60',
+    '1',
+    '3840,4',
+    '01/01/2024,00:00:00.000000',
+    '01/01/2024,00:00:00.000000',
+    'ASCII',
+    '1',
+  ].join('\n')
+  const datText = [
+    '1,0,0,-269,269,0,-122,122',
+    '2,260,25,-282,257,12,-128,116',
+    '3,520,50,-294,244,24,-133,109',
+    '4,781,74,-304,230,35,-138,101',
+  ].join('\n')
+
+  const dataset = parseComtradeFiles({ cfgText, datText, cfgName: 'teste.cfg', datName: 'teste.dat' })
+  const analysis = analyzePowerQuality(dataset)
+
+  assert.equal(dataset.sourceType, 'COMTRADE ASCII')
+  assert.equal(dataset.rows.length, 4)
+  assert.equal(Math.round(dataset.rows[1].Va), 25)
+  assert.ok(analysis.sampleCount >= 4)
 })

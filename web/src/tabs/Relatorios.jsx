@@ -110,6 +110,7 @@ function buildReportDocument(data, sections, analysis) {
     tables: [
       [['Indicador', 'Valor', 'Unidade'], ...buildSummaryCards(analysis).map(([n, v, u]) => [n, v, u])],
       [['Parâmetro', 'Limite', 'Valor', 'Status'], ...complianceRows(analysis)],
+      [['Prioridade', 'Recomendação', 'Detalhe'], ...analysis.recommendations.map(item => [item.priority, item.title, item.detail])],
       [['Data/Hora', 'Tipo', 'Descrição', 'Severidade', 'Fase', 'Duração'], ...analysis.events.slice(0, 40).map(event => [event.ts, event.tipo, event.desc, event.sev, event.fase, event.dur])],
     ],
   }
@@ -119,6 +120,8 @@ function buildReportHTML(data, sections, analysis) {
   const cards = buildSummaryCards(analysis)
   const rows = complianceRows(analysis)
   const eventRows = analysis.events.slice(0, 40)
+  const recommendations = analysis.recommendations ?? []
+  const prodist = analysis.summary.prodistVoltage ?? {}
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -152,6 +155,14 @@ function buildReportHTML(data, sections, analysis) {
   <h2>Resumo de Conformidade</h2>
   <table><thead><tr><th>Parâmetro</th><th>Limite</th><th>Valor</th><th>Status</th></tr></thead><tbody>
     ${rows.map(row => `<tr>${row.map((cell, index) => `<td class="${index === 3 ? (cell === 'Conforme' ? 'ok' : 'bad') : ''}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
+  </tbody></table>
+  <h2>Classificação PRODIST</h2>
+  <table><thead><tr><th>Faixa</th><th>Amostras</th><th>%</th></tr></thead><tbody>
+    ${['Adequada', 'Precária', 'Crítica'].map(name => `<tr><td>${name}</td><td>${escapeHtml(prodist[name]?.count ?? 0)}</td><td>${escapeHtml(prodist[name]?.pct ?? 0)}%</td></tr>`).join('')}
+  </tbody></table>
+  <h2>Recomendações Automáticas</h2>
+  <table><thead><tr><th>Prioridade</th><th>Ação</th><th>Detalhe</th></tr></thead><tbody>
+    ${recommendations.map(item => `<tr><td>${escapeHtml(item.priority)}</td><td>${escapeHtml(item.title)}</td><td>${escapeHtml(item.detail)}</td></tr>`).join('')}
   </tbody></table>
   <h2>Eventos Detectados</h2>
   <table><thead><tr><th>Data/Hora</th><th>Tipo</th><th>Descrição</th><th>Sev.</th><th>Fase</th><th>Duração</th></tr></thead><tbody>
@@ -414,6 +425,7 @@ function ReportPage({ page, sections, data, totalPages, analysis }) {
   const merged = { ...Object.fromEntries(REPORT_DATA_FIELDS), ...data }
   const summaryCards = buildSummaryCards(analysis).slice(0, 5).map(([name, value, unit]) => `${value} ${unit}`.trim())
   const reportComplianceRows = complianceRows(analysis)
+  const firstRecommendations = (analysis.recommendations ?? []).slice(0, 4)
   return (
     <div className="report-preview-page">
       <div style={{ display: 'flex', alignItems: 'center', borderBottom: '2px solid #cbd5e1', paddingBottom: 18 }}>
@@ -441,6 +453,12 @@ function ReportPage({ page, sections, data, totalPages, analysis }) {
           <table className="tbl"><tbody>
             {reportComplianceRows.map(r=>(
               <tr key={r[0]}>{r.map((c,i)=><td key={i} style={i===3?{color:c === 'Conforme' ? '#16a34a' : '#dc2626',fontWeight:700}:{}}>{c}</td>)}</tr>
+            ))}
+          </tbody></table>
+          <h3 style={{ marginTop: 22, fontSize: 13 }}>RECOMENDAÇÕES</h3>
+          <table className="tbl"><tbody>
+            {firstRecommendations.map(r=>(
+              <tr key={r.title}><td style={{ fontWeight: 700 }}>{r.priority}</td><td>{r.title}</td><td>{r.detail}</td></tr>
             ))}
           </tbody></table>
           <div style={{ marginTop: 16, fontSize: 11, color: '#94a3b8' }}>

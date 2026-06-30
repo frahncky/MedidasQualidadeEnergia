@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast'
 import { exportCSV } from '../utils/export'
 import { useAppContext } from '../context/AppContext'
 import { buildDemoPowerQualityDataset } from '../utils/powerQuality'
+import { parseComtradeFiles } from '../utils/comtrade'
 
 const SOURCES_LIST = [
   { name: 'PQA-5000 #12345', group: 'Aquisições Locais',              status: 'Online',  color: '#16a34a' },
@@ -148,6 +149,19 @@ function isCsvLike(file) {
   return name.endsWith('.csv') || file?.type === 'text/csv' || file?.type === 'application/vnd.ms-excel'
 }
 
+function readFileText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('Erro de leitura do arquivo'))
+    reader.readAsText(file)
+  })
+}
+
+function findByExtension(files, extensions) {
+  return files.find(file => extensions.some(ext => file.name.toLowerCase().endsWith(ext)))
+}
+
 function suggestColumn(field, fallback, columns) {
   if (!columns.length) return fallback
   const aliases = {
@@ -249,16 +263,59 @@ export default function Dados() {
     reader.readAsText(file)
   }
 
+  async function loadFiles(fileList) {
+    const files = Array.from(fileList ?? [])
+    if (!files.length) return
+
+    const cfg = findByExtension(files, ['.cfg'])
+    const dat = findByExtension(files, ['.dat'])
+    if (cfg || dat) {
+      if (!cfg || !dat) {
+        setParseError('COMTRADE requer selecionar juntos os arquivos .cfg e .dat')
+        toast('Selecione o par COMTRADE .cfg + .dat', 'warning')
+        return
+      }
+
+      setFileName(`${cfg.name} + ${dat.name}`)
+      setLoading(true)
+      setLoaded(false)
+      setChecksRun(false)
+      setParseError('')
+      setFileMeta({ size: formatBytes(cfg.size + dat.size), encoding: 'ASCII/UTF-8' })
+
+      try {
+        const [cfgText, datText] = await Promise.all([readFileText(cfg), readFileText(dat)])
+        const dataset = parseComtradeFiles({ cfgText, datText, cfgName: cfg.name, datName: dat.name })
+        setParsedData({
+          columns: dataset.columns,
+          rows: dataset.rows.slice(0, 5000),
+          totalRows: dataset.totalRows,
+          delimiter: dataset.delimiter,
+        })
+        setImportedDataset(dataset)
+        setLoaded(true)
+        toast(`COMTRADE importado: ${dataset.totalRows.toLocaleString('pt-BR')} amostras`, 'success')
+      } catch (error) {
+        setParseError(error.message || 'Falha ao ler COMTRADE')
+        setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
+        toast('Não foi possível importar o COMTRADE', 'error')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    loadFile(files[0])
+  }
+
   function handleFileChange(e) {
-    const f = e.target.files?.[0]
-    if (f) loadFile(f)
+    loadFiles(e.target.files)
   }
 
   function handleDrop(e) {
     e.preventDefault()
     setDropHover(false)
-    const f = e.dataTransfer?.files?.[0]
-    if (f) loadFile(f)
+    loadFiles(e.dataTransfer?.files)
   }
 
   function handleRunChecks() {
@@ -385,6 +442,7 @@ export default function Dados() {
           <div className="panel__body">
             <input type="file" ref={fileInputRef} style={{ display: 'none' }}
               accept={format ? FORMAT_EXTENSIONS[format] : '*'}
+              multiple
               onChange={handleFileChange} />
             <div
               className={`drop-zone${dropHover ? ' hover' : ''}`}

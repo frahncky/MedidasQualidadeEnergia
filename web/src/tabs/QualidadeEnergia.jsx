@@ -52,11 +52,13 @@ export default function QualidadeEnergia({ onNavigate }) {
     setDateTo,
     pqAnalysis,
     hasImportedDataset,
+    setImportedDataset,
   } = useAppContext()
   const toast = useToast()
   const [sub, setSub] = useState('indicadores')
   const [fase, setFase] = useState('Fase A')
   const [loading, setLoading] = useState(false)
+  const [disturbance, setDisturbance] = useState('afundamento')
 
   const phaseData = pqAnalysis.phases[fase] ?? pqAnalysis.phases['Fase A']
   const phaseEvents = useMemo(() => eventRows(pqAnalysis.events, fase), [pqAnalysis.events, fase])
@@ -107,6 +109,71 @@ export default function QualidadeEnergia({ onNavigate }) {
     }, 500)
   }
 
+  function handleSimularDisturbio() {
+    const rows = pqAnalysis.normalizedRows
+    if (!rows?.length) return
+    const start = rows[0].timestamp
+    const end = rows[rows.length - 1].timestamp
+    const span = Math.max(1, end - start)
+    const f = pqAnalysis.summary.freqAvg || 60
+
+    const nextRows = rows.map(row => {
+      const pos = (row.timestamp - start) / span
+      const t = (row.timestamp - start) / 1000
+      let Va = row.va
+      let Vb = row.vb
+      let Vc = row.vc
+      let Ia = row.ia
+      let Ib = row.ib
+      let Ic = row.ic
+
+      if (disturbance === 'afundamento' && pos > 0.32 && pos < 0.52) Vb *= 0.55
+      if (disturbance === 'elevacao' && pos > 0.28 && pos < 0.42) Va *= 1.2
+      if (disturbance === 'interrupcao' && pos > 0.48 && pos < 0.56) {
+        Va *= 0.03; Vb *= 0.03; Vc *= 0.03
+      }
+      if (disturbance === 'transitorio') {
+        const pulse = Math.exp(-(((pos - 0.62) / 0.003) ** 2)) * pqAnalysis.nominalVoltage * Math.SQRT2 * 1.4
+        Va += pulse
+      }
+      if (disturbance === 'harmonicas') {
+        const h5 = Math.sin(2 * Math.PI * f * 5 * t)
+        const h7 = Math.sin(2 * Math.PI * f * 7 * t)
+        Va += pqAnalysis.nominalVoltage * Math.SQRT2 * 0.055 * h5
+        Vb += pqAnalysis.nominalVoltage * Math.SQRT2 * 0.045 * h5
+        Vc += pqAnalysis.nominalVoltage * Math.SQRT2 * 0.04 * h7
+        Ia += (pqAnalysis.summary.irmsAvg || 1) * Math.SQRT2 * 0.12 * h5
+        Ib += (pqAnalysis.summary.irmsAvg || 1) * Math.SQRT2 * 0.1 * h7
+        Ic += (pqAnalysis.summary.irmsAvg || 1) * Math.SQRT2 * 0.09 * h5
+      }
+
+      return {
+        timestamp: row.timestamp,
+        Va,
+        Vb,
+        Vc,
+        Ia,
+        Ib,
+        Ic,
+        Freq_Hz: row.freq,
+        FP: row.fp,
+        P_kW: row.p,
+        Q_kVAr: row.q,
+      }
+    })
+
+    setImportedDataset({
+      fileName: `sim_${disturbance}.csv`,
+      sourceType: 'Simulação de distúrbio',
+      columns: ['timestamp', 'Va', 'Vb', 'Vc', 'Ia', 'Ib', 'Ic', 'Freq_Hz', 'FP', 'P_kW', 'Q_kVAr'],
+      rows: nextRows,
+      totalRows: nextRows.length,
+      delimiter: ',',
+      importedAt: new Date().toISOString(),
+    })
+    toast('Distúrbio aplicado e análise recalculada', 'success')
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
       <div className="inner-nav">
@@ -142,6 +209,14 @@ export default function QualidadeEnergia({ onNavigate }) {
             </select>
             <div className="spacer" />
             <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{pqAnalysis.sourceType}: {pqAnalysis.sourceName}</span>
+            <select value={disturbance} onChange={e => setDisturbance(e.target.value)} style={{ width: 136 }}>
+              <option value="afundamento">Afundamento</option>
+              <option value="elevacao">Elevação</option>
+              <option value="interrupcao">Interrupção</option>
+              <option value="transitorio">Transitório</option>
+              <option value="harmonicas">Harmônicas</option>
+            </select>
+            <button className="btn btn-ghost btn-sm" onClick={handleSimularDisturbio}>Simular</button>
             <button className="btn btn-primary btn-sm" onClick={handleAtualizar} disabled={loading}>
               {loading ? '…' : 'Atualizar'}
             </button>

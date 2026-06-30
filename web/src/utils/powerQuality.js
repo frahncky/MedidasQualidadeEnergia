@@ -366,6 +366,48 @@ function formatEventTime(timestamp) {
   return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
+function voltageThdLimit(nominalVoltage) {
+  if (nominalVoltage <= 1000) return 8
+  if (nominalVoltage <= 69000) return 5
+  if (nominalVoltage <= 161000) return 2.5
+  return 1.5
+}
+
+function currentThdLimit(shortCircuitRatio = 50) {
+  if (shortCircuitRatio < 20) return 5
+  if (shortCircuitRatio < 50) return 8
+  if (shortCircuitRatio < 100) return 12
+  if (shortCircuitRatio < 1000) return 15
+  return 20
+}
+
+function prodistVoltageClass(pu) {
+  if (!Number.isFinite(pu)) return 'Indefinida'
+  if (pu >= 0.93 && pu <= 1.05) return 'Adequada'
+  if ((pu >= 0.9 && pu < 0.93) || (pu > 1.05 && pu <= 1.06)) return 'Precária'
+  return 'Crítica'
+}
+
+function prodistVoltageSummary(rmsSeries, nominalVoltage) {
+  const counts = { Adequada: 0, Precária: 0, Crítica: 0, Indefinida: 0 }
+  rmsSeries.forEach(point => {
+    const values = [point.Va, point.Vb, point.Vc].filter(Number.isFinite)
+    if (!values.length || nominalVoltage <= 0) {
+      counts.Indefinida += 1
+      return
+    }
+    const worst = values
+      .map(value => prodistVoltageClass(value / nominalVoltage))
+      .sort((a, b) => ['Adequada', 'Precária', 'Crítica', 'Indefinida'].indexOf(b) - ['Adequada', 'Precária', 'Crítica', 'Indefinida'].indexOf(a))[0]
+    counts[worst] += 1
+  })
+  const total = Math.max(1, rmsSeries.length)
+  return Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, {
+    count: value,
+    pct: toFixedNumber((value / total) * 100, 1),
+  }]))
+}
+
 function detectVoltageEvents(rmsSeries, nominalVoltage) {
   const events = []
   const phases = [
@@ -509,7 +551,8 @@ function eventSummary(events) {
 
 function addIndexEvents(events, analysis) {
   const indexed = [...events]
-  if (analysis.unbalance > DEFAULT_LIMITS.unbalance) {
+  const limits = analysis.limits ?? DEFAULT_LIMITS
+  if (analysis.unbalance > limits.unbalance) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
       tipo: 'Desequilíbrio',
@@ -519,7 +562,7 @@ function addIndexEvents(events, analysis) {
       dur: '-',
     })
   }
-  if (analysis.thdVAvg > DEFAULT_LIMITS.thdV) {
+  if (analysis.thdVAvg > limits.thdV) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
       tipo: 'Harmônicas',
@@ -529,7 +572,7 @@ function addIndexEvents(events, analysis) {
       dur: '-',
     })
   }
-  if (analysis.thdIAvg > DEFAULT_LIMITS.thdI) {
+  if (analysis.thdIAvg > limits.thdI) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
       tipo: 'Harmônicas',
@@ -539,7 +582,7 @@ function addIndexEvents(events, analysis) {
       dur: '-',
     })
   }
-  if (analysis.interharmonicVMax > DEFAULT_LIMITS.interharmonicV) {
+  if (analysis.interharmonicVMax > limits.interharmonicV) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
       tipo: 'Inter-harmônicas',
@@ -549,7 +592,7 @@ function addIndexEvents(events, analysis) {
       dur: '-',
     })
   }
-  if (analysis.interharmonicIMax > DEFAULT_LIMITS.interharmonicI) {
+  if (analysis.interharmonicIMax > limits.interharmonicI) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
       tipo: 'Inter-harmônicas',
@@ -559,7 +602,7 @@ function addIndexEvents(events, analysis) {
       dur: '-',
     })
   }
-  if (analysis.pst95 > DEFAULT_LIMITS.pst) {
+  if (analysis.pst95 > limits.pst) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
       tipo: 'Flicker',
@@ -569,7 +612,7 @@ function addIndexEvents(events, analysis) {
       dur: '10 min',
     })
   }
-  if (analysis.fpAvg < DEFAULT_LIMITS.fp) {
+  if (analysis.fpAvg < limits.fp) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
       tipo: 'FP baixo',
@@ -583,17 +626,18 @@ function addIndexEvents(events, analysis) {
 }
 
 function complianceChecks(summary) {
+  const limits = summary.limits ?? DEFAULT_LIMITS
   return [
     { name: 'Tensão RMS', value: summary.voltageCompliancePct, limit: '90-110% Vnom', ok: summary.voltageCompliancePct >= 95 },
-    { name: 'THD-V', value: summary.thdVAvg, limit: `<= ${DEFAULT_LIMITS.thdV}%`, ok: summary.thdVAvg <= DEFAULT_LIMITS.thdV },
-    { name: 'THD-I', value: summary.thdIAvg, limit: `<= ${DEFAULT_LIMITS.thdI}%`, ok: summary.thdIAvg <= DEFAULT_LIMITS.thdI },
-    { name: 'Inter-harmônicas V', value: summary.interharmonicVMax, limit: `<= ${DEFAULT_LIMITS.interharmonicV}%`, ok: summary.interharmonicVMax <= DEFAULT_LIMITS.interharmonicV },
-    { name: 'Inter-harmônicas I', value: summary.interharmonicIMax, limit: `<= ${DEFAULT_LIMITS.interharmonicI}%`, ok: summary.interharmonicIMax <= DEFAULT_LIMITS.interharmonicI },
+    { name: 'THD-V', value: summary.thdVAvg, limit: `<= ${limits.thdV}%`, ok: summary.thdVAvg <= limits.thdV },
+    { name: 'THD-I', value: summary.thdIAvg, limit: `<= ${limits.thdI}%`, ok: summary.thdIAvg <= limits.thdI },
+    { name: 'Inter-harmônicas V', value: summary.interharmonicVMax, limit: `<= ${limits.interharmonicV}%`, ok: summary.interharmonicVMax <= limits.interharmonicV },
+    { name: 'Inter-harmônicas I', value: summary.interharmonicIMax, limit: `<= ${limits.interharmonicI}%`, ok: summary.interharmonicIMax <= limits.interharmonicI },
     { name: 'Transitórios', value: summary.transientCount, limit: '0 eventos', ok: summary.transientCount === 0 },
-    { name: 'Desequilíbrio', value: summary.unbalance, limit: `<= ${DEFAULT_LIMITS.unbalance}%`, ok: summary.unbalance <= DEFAULT_LIMITS.unbalance },
-    { name: 'Flicker Pst95', value: summary.pst95, limit: `<= ${DEFAULT_LIMITS.pst}`, ok: summary.pst95 <= DEFAULT_LIMITS.pst },
-    { name: 'Frequência', value: summary.freqAvg, limit: `${DEFAULT_LIMITS.freqMin}-${DEFAULT_LIMITS.freqMax} Hz`, ok: summary.freqAvg >= DEFAULT_LIMITS.freqMin && summary.freqAvg <= DEFAULT_LIMITS.freqMax },
-    { name: 'Fator de potência', value: summary.fpAvg, limit: `>= ${DEFAULT_LIMITS.fp}`, ok: summary.fpAvg >= DEFAULT_LIMITS.fp },
+    { name: 'Desequilíbrio', value: summary.unbalance, limit: `<= ${limits.unbalance}%`, ok: summary.unbalance <= limits.unbalance },
+    { name: 'Flicker Pst95', value: summary.pst95, limit: `<= ${limits.pst}`, ok: summary.pst95 <= limits.pst },
+    { name: 'Frequência', value: summary.freqAvg, limit: `${limits.freqMin}-${limits.freqMax} Hz`, ok: summary.freqAvg >= limits.freqMin && summary.freqAvg <= limits.freqMax },
+    { name: 'Fator de potência', value: summary.fpAvg, limit: `>= ${limits.fp}`, ok: summary.fpAvg >= limits.fp },
   ]
 }
 
@@ -608,6 +652,37 @@ function buildConformity(summary) {
     nonConforming: toFixedNumber(100 - score, 1),
     checks,
   }
+}
+
+function buildRecommendations(summary, events, measurement) {
+  const recommendations = []
+  const add = (priority, title, detail) => recommendations.push({ priority, title, detail })
+
+  if (summary.thdVAvg > summary.limits.thdV || summary.thdIAvg > summary.limits.thdI) {
+    add('Alta', 'Mitigar distorção harmônica', 'Avaliar filtro passivo/ativo, ressonância com banco de capacitores e contribuição de cargas não lineares.')
+  }
+  if (summary.interharmonicVMax > summary.limits.interharmonicV || summary.interharmonicIMax > summary.limits.interharmonicI) {
+    add('Média', 'Investigar inter-harmônicas', 'Verificar conversores, inversores e ciclos de controle que modulam corrente fora das ordens harmônicas inteiras.')
+  }
+  if (summary.transientCount > 0) {
+    add('Alta', 'Instalar proteção contra surtos', 'Correlacionar transitórios com manobras, chaveamento de capacitores e partidas; revisar DPS e aterramento.')
+  }
+  if (summary.unbalance > summary.limits.unbalance) {
+    add('Média', 'Balancear cargas por fase', 'Redistribuir cargas monofásicas e verificar conexões de neutro para reduzir VUF/IUF.')
+  }
+  if (summary.fpAvg < summary.limits.fp) {
+    add('Média', 'Corrigir fator de potência', 'Dimensionar compensação reativa com atenção a harmônicas e risco de ressonância.')
+  }
+  if ((summary.prodistVoltage?.Crítica?.pct ?? 0) > 0 || (summary.prodistVoltage?.Precária?.pct ?? 0) > 5) {
+    add('Alta', 'Adequar nível de tensão', 'Revisar taps, queda de tensão em alimentadores e carregamento para reduzir tempo em faixa precária/crítica.')
+  }
+  if (!measurement.classAReady) {
+    add('Baixa', 'Melhorar rastreabilidade da medição', 'Usar aquisição com forma de onda, taxa compatível e sincronismo para aproximar requisitos Classe A.')
+  }
+  if (!recommendations.length && events.length === 0) {
+    add('Baixa', 'Manter monitoramento periódico', 'Indicadores dentro dos limites configurados; manter campanha e comparar sazonalidade de carga.')
+  }
+  return recommendations
 }
 
 function normalizeAngle(angle) {
@@ -668,6 +743,46 @@ function buildPower(rows, phasors, summary) {
   }
 }
 
+function aggregateByDuration(series, durationMs, nominalVoltage) {
+  if (!series.length) return { durationMs, count: 0, min: 0, max: 0, avg: 0, compliancePct: 100, points: [] }
+  const points = []
+  let bucket = []
+  let start = series[0].timestamp
+  series.forEach(point => {
+    if (point.timestamp - start >= durationMs && bucket.length) {
+      points.push(bucket)
+      bucket = []
+      start = point.timestamp
+    }
+    bucket.push(point)
+  })
+  if (bucket.length) points.push(bucket)
+
+  const reduced = points.map(group => {
+    const Vavg = mean(group.map(point => point.Vavg).filter(Number.isFinite))
+    const freq = mean(group.map(point => point.freq).filter(Number.isFinite))
+    const fp = mean(group.map(point => point.fp).filter(Number.isFinite))
+    return {
+      label: group[0].label,
+      timestamp: group[0].timestamp,
+      Vavg: toFixedNumber(Vavg, 3),
+      freq: toFixedNumber(freq, 4),
+      fp: toFixedNumber(fp, 4),
+      prodist: prodistVoltageClass(nominalVoltage > 0 ? Vavg / nominalVoltage : 1),
+    }
+  })
+  const voltages = reduced.map(point => point.Vavg).filter(Number.isFinite)
+  return {
+    durationMs,
+    count: reduced.length,
+    min: toFixedNumber(Math.min(...voltages, nominalVoltage), 3),
+    max: toFixedNumber(Math.max(...voltages, nominalVoltage), 3),
+    avg: toFixedNumber(mean(voltages), 3),
+    compliancePct: toFixedNumber(100 * reduced.filter(point => point.prodist === 'Adequada').length / Math.max(1, reduced.length), 1),
+    points: reduced.slice(0, 96),
+  }
+}
+
 function buildMeasurementProfile(rows, sampleRate, frequency, nominalVoltage, rmsSeries) {
   const cycles = 10
   const windowMs = cycles * 1000 / (frequency || DEFAULT_FREQ)
@@ -709,6 +824,12 @@ function buildMeasurementProfile(rows, sampleRate, frequency, nominalVoltage, rm
     hasWaveform,
     hasThreePhaseVoltage,
     classAReady,
+    aggregations: {
+      cycles10: { count: windows.length, points: windows.slice(0, 96) },
+      cycles150: aggregateByDuration(rmsSeries, 150 * 1000 / (frequency || DEFAULT_FREQ), nominalVoltage),
+      minutes10: aggregateByDuration(rmsSeries, 10 * 60 * 1000, nominalVoltage),
+      hours2: aggregateByDuration(rmsSeries, 2 * 60 * 60 * 1000, nominalVoltage),
+    },
     windows: windows.slice(0, 96),
   }
 }
@@ -912,6 +1033,11 @@ export function analyzePowerQuality(dataset = null) {
   }
 
   const nominalVoltage = inferNominalVoltage([...voltageValues.A, ...voltageValues.B, ...voltageValues.C])
+  const standardLimits = {
+    ...DEFAULT_LIMITS,
+    thdV: voltageThdLimit(nominalVoltage),
+    thdI: currentThdLimit(50),
+  }
   const voltageStats = Object.fromEntries(PHASES.map(phase => [phase, { rms: channelRms(voltageValues[phase]), avg: channelAverage(voltageValues[phase]) }]))
   const currentStats = Object.fromEntries(PHASES.map(phase => [phase, { rms: channelRms(currentValues[phase]), avg: channelAverage(currentValues[phase]) }]))
 
@@ -954,6 +1080,7 @@ export function analyzePowerQuality(dataset = null) {
       })
     }).length / rmsSeries.length
     : 100
+  const prodistVoltage = prodistVoltageSummary(rmsSeries, nominalVoltage)
 
   const baseSummary = {
     sampleCount: rows.length,
@@ -972,6 +1099,8 @@ export function analyzePowerQuality(dataset = null) {
     fpAvg: toFixedNumber(fpAvg, 4),
     voltageCompliancePct: toFixedNumber(voltageCompliancePct, 1),
     frequencyCompliancePct: measurement.frequencyCompliancePct,
+    prodistVoltage,
+    limits: standardLimits,
     lastTimestamp: rows[rows.length - 1]?.timestamp ?? Date.now(),
   }
 
@@ -984,6 +1113,7 @@ export function analyzePowerQuality(dataset = null) {
   const phasors = buildPhasors(rows, frequency, voltageStats, currentStats)
   const power = buildPower(rows, phasors, summary)
   const conformity = buildConformity(summary)
+  const recommendations = buildRecommendations(summary, events, measurement)
 
   const geral = {
     phase: 'Geral',
@@ -1017,6 +1147,7 @@ export function analyzePowerQuality(dataset = null) {
     phasors,
     power,
     measurement,
+    recommendations,
     events,
     eventSummary: eventSummary(events),
     conformity,
