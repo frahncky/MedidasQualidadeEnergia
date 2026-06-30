@@ -1105,7 +1105,7 @@ body, button, input, select, textarea,
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 /* When Simulacao is embedded inside Circuitos:
