@@ -180,7 +180,7 @@ function suggestColumn(field, fallback, columns) {
 }
 export default function Dados() {
   const toast = useToast()
-  const { setImportedDataset, pqAnalysis } = useAppContext()
+  const { setImportedDataset, pqAnalysis, analysisStatus } = useAppContext()
   const [format, setFormat] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -611,6 +611,13 @@ export default function Dados() {
         <InfoPanel title="Frequência de Amostragem" rows={[
           ['Detectada', loaded ? `${pqAnalysis.sampleRate.toLocaleString('pt-BR')} amostras/s` : '—'],
           ['Nominal', `${pqAnalysis.nominalFrequency.toLocaleString('pt-BR')} Hz`], ['Tolerância', '1,0%'], ['Método', 'Auto'],
+        ]} />
+
+        <InfoPanel title="Motor de Análise" rows={[
+          ['Estado', analysisStatus.running ? 'Analisando…' : 'Pronto'],
+          ['Execução', analysisStatus.source === 'worker' ? 'Web Worker' : 'Thread principal'],
+          ['Tempo', analysisStatus.elapsedMs ? `${analysisStatus.elapsedMs} ms` : '—'],
+          ['Erro', analysisStatus.error || '—'],
         ]} />
 
         <InfoPanel title="Filtros" rows={[

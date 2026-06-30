@@ -53,6 +53,7 @@ export default function QualidadeEnergia({ onNavigate }) {
     pqAnalysis,
     hasImportedDataset,
     setImportedDataset,
+    analysisStatus,
   } = useAppContext()
   const toast = useToast()
   const [sub, setSub] = useState('indicadores')
@@ -208,7 +209,9 @@ export default function QualidadeEnergia({ onNavigate }) {
               {PHASE_OPTIONS.map(o => <option key={o}>{o}</option>)}
             </select>
             <div className="spacer" />
-            <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{pqAnalysis.sourceType}: {pqAnalysis.sourceName}</span>
+            <span style={{ fontSize: 11, color: analysisStatus.running ? '#d97706' : 'var(--c-text-muted)' }}>
+              {analysisStatus.running ? 'Analisando em segundo plano…' : `${pqAnalysis.sourceType}: ${pqAnalysis.sourceName}`}
+            </span>
             <select value={disturbance} onChange={e => setDisturbance(e.target.value)} style={{ width: 136 }}>
               <option value="afundamento">Afundamento</option>
               <option value="elevacao">Elevação</option>
@@ -216,7 +219,7 @@ export default function QualidadeEnergia({ onNavigate }) {
               <option value="transitorio">Transitório</option>
               <option value="harmonicas">Harmônicas</option>
             </select>
-            <button className="btn btn-ghost btn-sm" onClick={handleSimularDisturbio}>Simular</button>
+            <button className="btn btn-ghost btn-sm" onClick={handleSimularDisturbio} disabled={analysisStatus.running}>Simular</button>
             <button className="btn btn-primary btn-sm" onClick={handleAtualizar} disabled={loading}>
               {loading ? '…' : 'Atualizar'}
             </button>

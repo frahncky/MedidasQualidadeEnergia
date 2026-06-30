@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, useEffect } from 'react'
+import { createContext, useContext, useRef, useState, useEffect } from 'react'
 import { analyzePowerQuality } from '../utils/powerQuality'
 
 const AppCtx = createContext(null)
@@ -26,13 +26,65 @@ export function AppProvider({ children }) {
   const [dateTo, setDateTo] = useState(() => ls('smqe_dateTo', '31/05/2024'))
   const [instruments, setInstruments] = useState(() => ls('smqe_instruments', DEFAULT_INSTRUMENTS))
   const [importedDataset, setImportedDataset] = useState(null)
-  const pqAnalysis = useMemo(() => analyzePowerQuality(importedDataset), [importedDataset])
+  const [pqAnalysis, setPqAnalysis] = useState(() => analyzePowerQuality(null))
+  const [analysisStatus, setAnalysisStatus] = useState({ running: false, source: 'main-thread', elapsedMs: 0, error: '' })
+  const requestRef = useRef(0)
 
   useEffect(() => { localStorage.setItem('smqe_installation', JSON.stringify(installation)) }, [installation])
   useEffect(() => { localStorage.setItem('smqe_period', JSON.stringify(period)) }, [period])
   useEffect(() => { localStorage.setItem('smqe_dateFrom', JSON.stringify(dateFrom)) }, [dateFrom])
   useEffect(() => { localStorage.setItem('smqe_dateTo', JSON.stringify(dateTo)) }, [dateTo])
   useEffect(() => { localStorage.setItem('smqe_instruments', JSON.stringify(instruments)) }, [instruments])
+
+  useEffect(() => {
+    const requestId = requestRef.current + 1
+    requestRef.current = requestId
+    setAnalysisStatus(prev => ({ ...prev, running: true, error: '' }))
+
+    if (typeof Worker === 'undefined') {
+      try {
+        const startedAt = performance.now()
+        setPqAnalysis(analyzePowerQuality(importedDataset))
+        setAnalysisStatus({ running: false, source: 'main-thread', elapsedMs: Math.round(performance.now() - startedAt), error: '' })
+      } catch (error) {
+        setAnalysisStatus({ running: false, source: 'main-thread', elapsedMs: 0, error: error?.message ?? 'Falha ao analisar qualidade de energia' })
+      }
+      return undefined
+    }
+
+    const worker = new Worker(new URL('../workers/pqAnalysisWorker.js', import.meta.url), { type: 'module' })
+    worker.onmessage = event => {
+      const { id, ok, analysis, elapsedMs, error } = event.data ?? {}
+      if (id !== requestRef.current) return
+      if (ok) {
+        setPqAnalysis(analysis)
+        setAnalysisStatus({ running: false, source: 'worker', elapsedMs, error: '' })
+      } else {
+        try {
+          const startedAt = performance.now()
+          setPqAnalysis(analyzePowerQuality(importedDataset))
+          setAnalysisStatus({ running: false, source: 'main-thread', elapsedMs: Math.round(performance.now() - startedAt), error: error ?? '' })
+        } catch (fallbackError) {
+          setAnalysisStatus({ running: false, source: 'main-thread', elapsedMs: 0, error: fallbackError?.message ?? error ?? 'Falha ao analisar qualidade de energia' })
+        }
+      }
+      worker.terminate()
+    }
+    worker.onerror = event => {
+      if (requestId !== requestRef.current) return
+      worker.terminate()
+      try {
+        const startedAt = performance.now()
+        setPqAnalysis(analyzePowerQuality(importedDataset))
+        setAnalysisStatus({ running: false, source: 'main-thread', elapsedMs: Math.round(performance.now() - startedAt), error: event.message ?? '' })
+      } catch (error) {
+        setAnalysisStatus({ running: false, source: 'main-thread', elapsedMs: 0, error: error?.message ?? 'Falha ao analisar qualidade de energia' })
+      }
+    }
+    worker.postMessage({ id: requestId, dataset: importedDataset })
+
+    return () => worker.terminate()
+  }, [importedDataset])
 
   function addInstrument(inst) {
     setInstruments(prev => [...prev, inst])
@@ -55,6 +107,7 @@ export function AppProvider({ children }) {
       instruments, addInstrument, updateInstrument, removeInstrument,
       importedDataset, setImportedDataset,
       pqAnalysis,
+      analysisStatus,
       hasImportedDataset: Boolean(importedDataset?.rows?.length),
     }}>
       {children}

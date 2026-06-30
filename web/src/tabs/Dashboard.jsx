@@ -139,7 +139,7 @@ function buildKPI(analysis) {
 }
 
 export default function Dashboard({ onNavigate }) {
-  const { installation, setInstallation, period, setPeriod, pqAnalysis } = useAppContext()
+  const { installation, setInstallation, period, setPeriod, pqAnalysis, analysisStatus } = useAppContext()
   const toast = useToast()
   const [loadType, setLoadType] = useState('Todas')
   const [loading, setLoading] = useState(false)
@@ -157,6 +157,7 @@ export default function Dashboard({ onNavigate }) {
     { label: 'Aquisição de Dados', val: 'Online',           color: '#16a34a' },
     { label: 'Sincronismo de Tempo', val: 'OK',             color: '#16a34a' },
     { label: 'Qualidade dos Dados', val: `${fmt(pqAnalysis.conformity.score, 1)}%`, color: '#1d4ed8' },
+    { label: 'Motor PQ', val: analysisStatus.running ? 'Analisando' : analysisStatus.source, color: analysisStatus.running ? '#d97706' : '#16a34a' },
     { label: 'Última Atualização', val: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }), color: '#64748b' },
   ]
 
