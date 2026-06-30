@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useToast } from '../components/Toast'
 import { exportJSON, exportCSV, exportText } from '../utils/export'
+import { useAppContext } from '../context/AppContext'
 
 const ALL_SECTIONS = [
   { id: 'capa',        label: 'Capa e Identificação' },
@@ -49,8 +50,24 @@ const REPORT_DATA_FIELDS = [
   ['Local da Instalação',   'Subestação Principal'],
 ]
 
+function fmt(value, digits = 2) {
+  return Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : '-'
+}
+
+function buildSummaryCards(analysis) {
+  return [
+    ['Conformidade', `${fmt(analysis.conformity.score, 1)}%`, 'Global', '#16a34a'],
+    ['Eventos', String(analysis.events.length), 'Detectados', '#ef4444'],
+    ['THD-V', `${fmt(analysis.summary.thdVAvg, 2)}%`, 'Médio', '#1d4ed8'],
+    ['FP Médio', fmt(analysis.summary.fpAvg, 3), 'Indutivo', '#9333ea'],
+    ['Tensão Média', analysis.summary.vrmsAvg >= 1000 ? fmt(analysis.summary.vrmsAvg / 1000, 2) : fmt(analysis.summary.vrmsAvg, 1), analysis.summary.vrmsAvg >= 1000 ? 'kV' : 'V', '#ea580c'],
+    ['Frequência', fmt(analysis.summary.freqAvg, 3), 'Hz', '#16a34a'],
+  ]
+}
+
 export default function Relatorios({ onNavigate }) {
   const toast = useToast()
+  const { pqAnalysis, installation, dateFrom, dateTo } = useAppContext()
   const [template, setTemplate] = useState(TEMPLATES[0])
   const [selectedSections, setSelectedSections] = useState(() => new Set(ALL_SECTIONS.map(s => s.id)))
   const [inclusions, setInclusions] = useState(() => new Set(INCLUSIONS))
@@ -58,7 +75,11 @@ export default function Relatorios({ onNavigate }) {
   const [formatOpts, setFormatOpts] = useState([true, true, true, false])
   const [figureFormats, setFigureFormats] = useState([true, false, false, true, false])
   const [appendices, setAppendices] = useState([true, true, true, true, false])
-  const [reportData, setReportData] = useState(Object.fromEntries(REPORT_DATA_FIELDS))
+  const [reportData, setReportData] = useState(() => ({
+    ...Object.fromEntries(REPORT_DATA_FIELDS),
+    'Período de Medição': `${dateFrom} – ${dateTo}`,
+    'Local da Instalação': installation,
+  }))
   const [page, setPage] = useState(1)
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated] = useState(false)
@@ -91,14 +112,30 @@ export default function Relatorios({ onNavigate }) {
 
   function handleDownload() {
     if (!generated) { toast('Gere o relatório primeiro', 'warning'); return }
-    const fmt = format.split(' ')[0]
-    if (fmt === 'JSON') {
-      exportJSON({ template, format, sections: [...selectedSections], data: reportData, geradoEm: new Date().toISOString() }, 'relatorio_smqe.json')
+    const exportFormat = format.split(' ')[0]
+    if (exportFormat === 'JSON') {
+      exportJSON({
+        template,
+        format,
+        sections: [...selectedSections],
+        data: reportData,
+        resumo: pqAnalysis.summary,
+        conformidade: pqAnalysis.conformity,
+        eventos: pqAnalysis.events,
+        geradoEm: new Date().toISOString(),
+      }, 'relatorio_smqe.json')
     } else {
       const txt = Object.entries(reportData).map(([k,v]) => `${k}: ${v}`).join('\n')
-      exportText(`RELATÓRIO SMQE\n${'-'.repeat(40)}\n${txt}\n\nSeções: ${[...selectedSections].join(', ')}`, 'relatorio_smqe.txt')
+      const indicators = [
+        `Conformidade: ${pqAnalysis.conformity.score}%`,
+        `THD-V médio: ${fmt(pqAnalysis.summary.thdVAvg, 2)}%`,
+        `THD-I médio: ${fmt(pqAnalysis.summary.thdIAvg, 2)}%`,
+        `Desequilíbrio: ${fmt(pqAnalysis.summary.unbalance, 2)}%`,
+        `Eventos: ${pqAnalysis.events.length}`,
+      ].join('\n')
+      exportText(`RELATÓRIO SMQE\n${'-'.repeat(40)}\n${txt}\n\nINDICADORES\n${indicators}\n\nSeções: ${[...selectedSections].join(', ')}`, 'relatorio_smqe.txt')
     }
-    toast(`Relatório exportado em ${fmt}`, 'success')
+    toast(`Relatório exportado em ${exportFormat}`, 'success')
   }
 
   const allChecked = selectedSections.size === ALL_SECTIONS.length
@@ -184,7 +221,7 @@ export default function Relatorios({ onNavigate }) {
           </div>
           <div className="report-preview-wrap" style={{ height: 'calc(100% - 38px)' }}>
             {generated
-              ? <ReportPage page={page} sections={[...selectedSections]} data={reportData} totalPages={totalPages} />
+              ? <ReportPage page={page} sections={[...selectedSections]} data={reportData} totalPages={totalPages} analysis={pqAnalysis} />
               : generating
                 ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--c-primary)', fontWeight: 700 }}>⏳ Gerando {selectedSections.size} seções…</div>
                 : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--c-text-muted)', flexDirection: 'column', gap: 8 }}>
@@ -243,7 +280,7 @@ export default function Relatorios({ onNavigate }) {
         <div className="panel">
           <div className="panel__head">7. Resumo Automático</div>
           <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            {[['Energia Ativa','125,43','MWh','#16a34a'],['Demanda Máxima','1,786','MW','#ea580c'],['FP Médio','0,92','Indutivo','#9333ea'],['Tensão Média','13,8','kV','#1d4ed8'],['Frequência','60,02','Hz','#16a34a'],['Interrupções','2','Eventos','#ef4444']].map(([n,v,u,c])=>(
+            {buildSummaryCards(pqAnalysis).map(([n,v,u,c])=>(
               <div key={n} className="mini-kpi"><div className="mini-kpi__name">{n}</div><div className="mini-kpi__value" style={{color:c}}>{v}</div><div className="mini-kpi__ref">{u}</div></div>
             ))}
           </div>
@@ -271,8 +308,15 @@ export default function Relatorios({ onNavigate }) {
   )
 }
 
-function ReportPage({ page, sections, data, totalPages }) {
+function ReportPage({ page, sections, data, totalPages, analysis }) {
   const merged = { ...Object.fromEntries(REPORT_DATA_FIELDS), ...data }
+  const summaryCards = buildSummaryCards(analysis).slice(0, 5).map(([name, value, unit]) => `${value} ${unit}`.trim())
+  const complianceRows = analysis.conformity.checks.map(check => [
+    check.name,
+    check.limit,
+    typeof check.value === 'number' ? fmt(check.value, check.value < 10 ? 2 : 1) : check.value,
+    check.ok ? 'Conforme' : 'Não conforme',
+  ])
   return (
     <div className="report-preview-page">
       <div style={{ display: 'flex', alignItems: 'center', borderBottom: '2px solid #cbd5e1', paddingBottom: 18 }}>
@@ -292,14 +336,14 @@ function ReportPage({ page, sections, data, totalPages }) {
           </div>
           <h3 style={{ marginTop: 22, fontSize: 13 }}>SUMÁRIO EXECUTIVO</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
-            {['98% Conforme','23 Eventos','6,87% THD-I','0,92 FP','125,43 MWh'].map((k,i)=>(
+            {summaryCards.map((k,i)=>(
               <div key={k} style={{ border:'1px solid #bfdbfe', borderRadius:8, padding:12, textAlign:'center', fontWeight:800, fontSize:11, color:['#16a34a','#d97706','#1d4ed8','#9333ea','#ea580c'][i] }}>{k}</div>
             ))}
           </div>
           <h3 style={{ marginTop: 22, fontSize: 13 }}>RESUMO DE CONFORMIDADE</h3>
           <table className="tbl"><tbody>
-            {[['Tensão RMS','±10%','Dentro do limite','Conforme'],['THD-Tensão','5,0%','2,34%','Conforme'],['THD-Corrente','8,0%','6,87%','Conforme']].map(r=>(
-              <tr key={r[0]}>{r.map((c,i)=><td key={i} style={i===3?{color:'#16a34a',fontWeight:700}:{}}>{c}</td>)}</tr>
+            {complianceRows.map(r=>(
+              <tr key={r[0]}>{r.map((c,i)=><td key={i} style={i===3?{color:c === 'Conforme' ? '#16a34a' : '#dc2626',fontWeight:700}:{}}>{c}</td>)}</tr>
             ))}
           </tbody></table>
           <div style={{ marginTop: 16, fontSize: 11, color: '#94a3b8' }}>

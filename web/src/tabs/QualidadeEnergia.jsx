@@ -3,69 +3,110 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell
 } from 'recharts'
-import { calcTHD, generateHarmonics, demoEvents, SEV_CLASS, energySeries } from '../utils/powerQuality'
+import { SEV_CLASS } from '../utils/powerQuality'
 import { useAppContext } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import { exportCSV } from '../utils/export'
 import Fasores from './Fasores'
 
-const PHASE_DATA = {
-  'Fase A': { thdV: 6.87, thdVPct: '2,34 %', thdIPct: '6,87 %', vrms: '13,81 kV', irms: '612 A', unb: '0,92 %', conformidade: 982 },
-  'Fase B': { thdV: 7.12, thdVPct: '2,41 %', thdIPct: '7,12 %', vrms: '13,84 kV', irms: '608 A', unb: '1,05 %', conformidade: 975 },
-  'Fase C': { thdV: 6.61, thdVPct: '2,28 %', thdIPct: '6,61 %', vrms: '13,79 kV', irms: '615 A', unb: '0,78 %', conformidade: 989 },
-  'Geral':  { thdV: 6.87, thdVPct: '2,34 %', thdIPct: '6,87 %', vrms: '13,81 kV', irms: '612 A', unb: '0,92 %', conformidade: 982 },
+const PHASE_OPTIONS = ['Fase A', 'Fase B', 'Fase C', 'Geral']
+const PHASE_SERIES_KEY = { 'Fase A': 'Va', 'Fase B': 'Vb', 'Fase C': 'Vc', Geral: 'Vavg' }
+
+function fmt(value, digits = 2) {
+  return Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : '-'
 }
 
-const BASE_SERIES = energySeries()
+function formatVoltage(value) {
+  if (!Number.isFinite(value)) return '-'
+  return Math.abs(value) >= 1000 ? `${fmt(value / 1000, 2)} kV` : `${fmt(value, 1)} V`
+}
+
+function formatCurrent(value) {
+  return Number.isFinite(value) ? `${fmt(value, 1)} A` : '-'
+}
+
+function formatPct(value, digits = 2) {
+  return Number.isFinite(value) ? `${fmt(value, digits)} %` : '-'
+}
+
+function eventRows(events, fase) {
+  return events.filter(event => fase === 'Geral' || event.fase === fase.slice(-1) || event.fase === 'ABC')
+}
+
+function summaryRows(summary, total) {
+  const names = ['Afundamento', 'Elevação', 'Interrupção', 'Desequilíbrio', 'Flicker', 'Harmônicas', 'FP baixo']
+  return names.map(name => {
+    const count = summary[name] ?? 0
+    const pct = total > 0 ? (100 * count / total) : 0
+    return [name, String(count), `${fmt(pct, 0)}%`]
+  })
+}
 
 export default function QualidadeEnergia({ onNavigate }) {
-  const { installation: instalacao, setInstallation: setInstalacao, dateFrom, setDateFrom, dateTo, setDateTo } = useAppContext()
+  const {
+    installation: instalacao,
+    setInstallation: setInstalacao,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    pqAnalysis,
+    hasImportedDataset,
+  } = useAppContext()
   const toast = useToast()
   const [sub, setSub] = useState('indicadores')
   const [fase, setFase] = useState('Fase A')
   const [loading, setLoading] = useState(false)
-  const [seed, setSeed] = useState(0)
 
-  const pd = PHASE_DATA[fase] ?? PHASE_DATA['Fase A']
+  const phaseData = pqAnalysis.phases[fase] ?? pqAnalysis.phases['Fase A']
+  const phaseEvents = useMemo(() => eventRows(pqAnalysis.events, fase), [pqAnalysis.events, fase])
+  const series = useMemo(() => {
+    const key = PHASE_SERIES_KEY[fase] ?? 'Va'
+    return pqAnalysis.rmsSeries.map(point => ({
+      ...point,
+      V: point[key] ?? point.Vavg,
+      fp: point.fp || pqAnalysis.summary.fpAvg,
+      freq: point.freq || pqAnalysis.summary.freqAvg,
+    }))
+  }, [pqAnalysis, fase])
 
   const miniKpis = useMemo(() => [
-    { name: 'Tensão RMS',      value: pd.vrms,     ref: 'Nom: 13,8 kV',   color: '#1d4ed8', ok: true  },
-    { name: 'Corrente RMS',    value: pd.irms,     ref: 'Nom: 600 A',     color: '#16a34a', ok: true  },
-    { name: 'THD-V Médio',     value: pd.thdVPct,  ref: 'IEEE 519: ≤5%',  color: '#0284c7', ok: true  },
-    { name: 'THD-I Médio',     value: pd.thdIPct,  ref: 'IEEE 519: ≤8%',  color: '#7c3aed', ok: true  },
-    { name: 'Desequilíbrio V', value: pd.unb,      ref: 'PRODIST: ≤2%',   color: '#d97706', ok: true  },
-    { name: 'Flicker Pst 95%', value: '0,58',      ref: 'IEC: ≤1,0',      color: '#9333ea', ok: true  },
-    { name: 'Frequência',      value: '60,02 Hz',  ref: 'PRODIST: ±0,2%', color: '#059669', ok: true  },
-    { name: 'Eventos Totais',  value: '128',       ref: 'Mês corrente',   color: '#dc2626', ok: false },
-    { name: 'Conformidade',    value: `${(pd.conformidade / 10).toFixed(1)} %`, ref: 'Meta: ≥95%', color: '#16a34a', ok: true },
-  ], [fase, seed])
+    { name: 'Tensão RMS',      value: formatVoltage(phaseData.vrms),            ref: `Nom: ${formatVoltage(pqAnalysis.nominalVoltage)}`, color: '#1d4ed8', ok: pqAnalysis.summary.voltageCompliancePct >= 95 },
+    { name: 'Corrente RMS',    value: formatCurrent(phaseData.irms),            ref: `${pqAnalysis.sampleCount.toLocaleString('pt-BR')} amostras`, color: '#16a34a', ok: true },
+    { name: 'THD-V Médio',     value: formatPct(phaseData.thdV),                ref: 'IEEE 519: <=5%', color: '#0284c7', ok: phaseData.thdV <= 5 },
+    { name: 'THD-I Médio',     value: formatPct(phaseData.thdI),                ref: 'IEEE 519: <=8%', color: '#7c3aed', ok: phaseData.thdI <= 8 },
+    { name: 'Desequilíbrio V', value: formatPct(pqAnalysis.summary.unbalance),  ref: 'PRODIST: <=2%', color: '#d97706', ok: pqAnalysis.summary.unbalance <= 2 },
+    { name: 'Flicker Pst 95%', value: fmt(pqAnalysis.summary.pst95, 2),         ref: 'IEC: <=1,0', color: '#9333ea', ok: pqAnalysis.summary.pst95 <= 1 },
+    { name: 'Frequência',      value: `${fmt(pqAnalysis.summary.freqAvg, 3)} Hz`, ref: 'PRODIST: 59,9-60,1', color: '#059669', ok: pqAnalysis.summary.freqAvg >= 59.9 && pqAnalysis.summary.freqAvg <= 60.1 },
+    { name: 'Eventos Totais',  value: String(phaseEvents.length),               ref: hasImportedDataset ? pqAnalysis.sourceName : 'Demonstração', color: '#dc2626', ok: phaseEvents.length === 0 },
+    { name: 'Conformidade',    value: `${fmt(pqAnalysis.conformity.score, 1)} %`, ref: 'Meta: >=95%', color: '#16a34a', ok: pqAnalysis.conformity.score >= 95 },
+  ], [phaseData, pqAnalysis, phaseEvents.length, hasImportedDataset])
 
-  const harmonics = useMemo(() => generateHarmonics(pd.thdV), [fase, seed])
-  const thd = useMemo(() => calcTHD(harmonics).toFixed(2), [harmonics])
-
-  const series = useMemo(() => BASE_SERIES.map((s, i) => ({
-    ...s,
-    V: 220 + Math.sin(i * 0.3 + (fase === 'Fase B' ? 0.5 : fase === 'Fase C' ? -0.5 : 0)) * 2 + Math.random() - 0.5,
-    pst: +(0.4 + Math.random() * 0.6).toFixed(3),
-    freq: +(60 + Math.sin(i * 0.5) * 0.08 + Math.random() * 0.04 - 0.02).toFixed(4),
-  })), [fase, seed])
+  const harmonics = phaseData.harmonics ?? []
+  const harmonicRows = harmonics
+    .filter(h => h.order > 1)
+    .map(h => ({ name: `${h.order}ª`, mag: h.percent ?? 0, limit: h.limitPct }))
 
   const confPie = useMemo(() => [
-    { name: 'Conforme',   value: pd.conformidade,         color: '#16a34a' },
-    { name: 'Não conf.',  value: 1000 - pd.conformidade,  color: '#dc2626' },
-  ], [fase])
+    { name: 'Conforme',  value: pqAnalysis.conformity.conforming,    color: '#16a34a' },
+    { name: 'Não conf.', value: pqAnalysis.conformity.nonConforming, color: '#dc2626' },
+  ], [pqAnalysis.conformity])
 
-  const events = useMemo(() => demoEvents(), [])
+  const voltageDomain = [
+    Math.max(0, pqAnalysis.nominalVoltage * 0.85),
+    pqAnalysis.nominalVoltage * 1.15,
+  ]
 
   function handleAtualizar() {
     setLoading(true)
-    setTimeout(() => { setSeed(s => s + 1); setLoading(false) }, 700)
+    setTimeout(() => {
+      setLoading(false)
+      toast('Indicadores recalculados com os dados atuais', 'success')
+    }, 500)
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
-
-      {/* Inner sub-tab nav */}
       <div className="inner-nav">
         <span className="inner-nav__label">Análise:</span>
         <button className={`inner-nav-btn${sub === 'indicadores' ? ' active' : ''}`} onClick={() => setSub('indicadores')}>
@@ -78,14 +119,12 @@ export default function QualidadeEnergia({ onNavigate }) {
 
       {sub === 'fasores' ? <Fasores /> : (
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 1100, overflow: 'visible', position: 'relative' }}>
-
           {loading && (
             <div className="loading-overlay" style={{ position: 'absolute' }}>
               <div className="loading-box">↻ Atualizando…</div>
             </div>
           )}
 
-          {/* Filter bar */}
           <div className="filter-bar">
             <label>Período:</label>
             <input type="text" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: 110 }} />
@@ -97,16 +136,16 @@ export default function QualidadeEnergia({ onNavigate }) {
             </select>
             <label>Sistema:</label>
             <select value={fase} onChange={e => setFase(e.target.value)} style={{ width: 110 }}>
-              {['Fase A', 'Fase B', 'Fase C', 'Geral'].map(o => <option key={o}>{o}</option>)}
+              {PHASE_OPTIONS.map(o => <option key={o}>{o}</option>)}
             </select>
             <div className="spacer" />
+            <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{pqAnalysis.sourceType}: {pqAnalysis.sourceName}</span>
             <button className="btn btn-primary btn-sm" onClick={handleAtualizar} disabled={loading}>
               {loading ? '…' : 'Atualizar'}
             </button>
             <button className="btn btn-ghost btn-sm" onClick={() => onNavigate?.('relatorios')}>Relatório</button>
           </div>
 
-          {/* Mini KPIs */}
           <div style={{ padding: '8px 12px', flexShrink: 0 }}>
             <div className="mini-kpi-row" style={{ gridTemplateColumns: 'repeat(9,1fr)' }}>
               {miniKpis.map(k => (
@@ -114,25 +153,23 @@ export default function QualidadeEnergia({ onNavigate }) {
                   <div className="mini-kpi__name">{k.name}</div>
                   <div className="mini-kpi__value" style={{ color: k.color }}>{k.value}</div>
                   <div className="mini-kpi__ref" style={{ color: k.ok ? '#16a34a' : '#dc2626' }}>
-                    {k.ok ? '✓' : '!'} {k.ref}
+                    {k.ok ? 'OK' : '!'} {k.ref}
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Charts 2×3 */}
           <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gridTemplateRows: '320px 320px', gap: 14, padding: '0 14px', minHeight: 670 }}>
-
             <div className="panel">
-              <div className="panel__head">Espectro Harmônico — {fase} — THD = {thd}%</div>
+              <div className="panel__head">Espectro Harmônico — {fase} — THD = {fmt(phaseData.thdV, 2)}%</div>
               <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
                 <ResponsiveContainer>
-                  <BarChart data={harmonics.filter(h => h.order > 1).map(h => ({ name: `${h.order}ª`, mag: h.magnitude, limit: h.limitPct }))} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                  <BarChart data={harmonicRows} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="name" tick={{ fontSize: 9 }} />
                     <YAxis tick={{ fontSize: 9 }} />
-                    <Tooltip />
+                    <Tooltip formatter={value => [`${fmt(value, 3)}%`, 'Magnitude']} />
                     <Bar dataKey="mag" fill="#1d4ed8" name="THD-V (%)" radius={[3, 3, 0, 0]} />
                     <Line type="monotone" dataKey="limit" stroke="#dc2626" dot={false} name="Limite" />
                   </BarChart>
@@ -146,12 +183,12 @@ export default function QualidadeEnergia({ onNavigate }) {
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={4} />
-                    <YAxis domain={[215, 225]} tick={{ fontSize: 9 }} />
-                    <Tooltip formatter={v => [v.toFixed(2) + 'V', 'Vrms']} />
-                    <ReferenceLine y={220} stroke="#16a34a" strokeDasharray="3 2" label={{ value: 'Vnom', fontSize: 9, fill: '#16a34a' }} />
-                    <ReferenceLine y={231} stroke="#dc2626" strokeDasharray="3 2" label={{ value: '+5%', fontSize: 9, fill: '#dc2626' }} />
-                    <ReferenceLine y={209} stroke="#dc2626" strokeDasharray="3 2" label={{ value: '-5%', fontSize: 9, fill: '#dc2626' }} />
+                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+                    <YAxis domain={voltageDomain} tick={{ fontSize: 9 }} tickFormatter={value => Math.abs(value) >= 1000 ? (value / 1000).toFixed(1) : value.toFixed(0)} />
+                    <Tooltip formatter={value => [formatVoltage(value), 'Vrms']} />
+                    <ReferenceLine y={pqAnalysis.nominalVoltage} stroke="#16a34a" strokeDasharray="3 2" label={{ value: 'Vnom', fontSize: 9, fill: '#16a34a' }} />
+                    <ReferenceLine y={pqAnalysis.nominalVoltage * 1.1} stroke="#dc2626" strokeDasharray="3 2" label={{ value: '+10%', fontSize: 9, fill: '#dc2626' }} />
+                    <ReferenceLine y={pqAnalysis.nominalVoltage * 0.9} stroke="#dc2626" strokeDasharray="3 2" label={{ value: '-10%', fontSize: 9, fill: '#dc2626' }} />
                     <Line type="monotone" dataKey="V" stroke="#1d4ed8" dot={false} name="Vrms" strokeWidth={1.5} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -165,17 +202,17 @@ export default function QualidadeEnergia({ onNavigate }) {
                   <Pie data={confPie} cx={60} cy={60} innerRadius={38} outerRadius={60} dataKey="value" paddingAngle={2}>
                     {confPie.map((e, i) => <Cell key={i} fill={e.color} />)}
                   </Pie>
-                  <Tooltip formatter={v => [`${(v / 10).toFixed(1)}%`]} />
+                  <Tooltip formatter={value => [`${fmt(value, 1)}%`]} />
                 </PieChart>
                 <div>
                   {confPie.map(d => (
                     <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 6 }}>
                       <span style={{ width: 10, height: 10, borderRadius: 2, background: d.color, flexShrink: 0 }} />
                       <span>{d.name}</span>
-                      <span style={{ fontWeight: 700, color: d.color, marginLeft: 'auto' }}>{(d.value / 10).toFixed(1)}%</span>
+                      <span style={{ fontWeight: 700, color: d.color, marginLeft: 'auto' }}>{fmt(d.value, 1)}%</span>
                     </div>
                   ))}
-                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8 }}>Base: 1000 ciclos<br />Período: {dateFrom.slice(3)}</div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8 }}>Base: {pqAnalysis.sampleCount.toLocaleString('pt-BR')} amostras<br />Fonte: {hasImportedDataset ? 'CSV importado' : 'demo calculado'}</div>
                 </div>
               </div>
             </div>
@@ -186,9 +223,9 @@ export default function QualidadeEnergia({ onNavigate }) {
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={4} />
-                    <YAxis domain={[0.82, 1.0]} tick={{ fontSize: 9 }} />
-                    <Tooltip formatter={v => [v.toFixed(3), 'FP']} />
+                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+                    <YAxis domain={[0.75, 1.0]} tick={{ fontSize: 9 }} />
+                    <Tooltip formatter={value => [fmt(value, 3), 'FP']} />
                     <ReferenceLine y={0.92} stroke="#16a34a" strokeDasharray="3 2" label={{ value: 'Meta', fontSize: 9 }} />
                     <Line type="monotone" dataKey="fp" stroke="#7c3aed" dot={false} strokeWidth={2} />
                   </LineChart>
@@ -202,9 +239,9 @@ export default function QualidadeEnergia({ onNavigate }) {
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={4} />
+                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
                     <YAxis domain={[0, 2]} tick={{ fontSize: 9 }} />
-                    <Tooltip formatter={v => [v.toFixed(3), 'Pst']} />
+                    <Tooltip formatter={value => [fmt(value, 3), 'Pst']} />
                     <ReferenceLine y={1.0} stroke="#dc2626" strokeDasharray="3 2" label={{ value: 'Limite', fontSize: 9, fill: '#dc2626' }} />
                     <Line type="monotone" dataKey="pst" stroke="#d97706" dot={false} strokeWidth={1.5} />
                   </LineChart>
@@ -218,9 +255,9 @@ export default function QualidadeEnergia({ onNavigate }) {
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={4} />
+                    <XAxis dataKey="label" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
                     <YAxis domain={[59.8, 60.2]} tick={{ fontSize: 9 }} />
-                    <Tooltip formatter={v => [v.toFixed(4) + 'Hz', 'f']} />
+                    <Tooltip formatter={value => [`${fmt(value, 4)} Hz`, 'f']} />
                     <ReferenceLine y={60} stroke="#16a34a" strokeDasharray="3 2" />
                     <Line type="monotone" dataKey="freq" stroke="#059669" dot={false} strokeWidth={1.5} />
                   </LineChart>
@@ -229,25 +266,25 @@ export default function QualidadeEnergia({ onNavigate }) {
             </div>
           </div>
 
-          {/* Bottom: events + stats */}
           <div style={{ height: 190, display: 'grid', gridTemplateColumns: '1fr 280px', gap: 8, padding: '8px 12px 10px', flexShrink: 0 }}>
             <div className="panel">
               <div className="panel__head">Alarmes e Eventos Recentes
-                <span className="panel__head-actions"><button className="btn btn-ghost btn-sm" onClick={() => { exportCSV(events.map(e=>({DataHora:e.ts,Tipo:e.tipo,Descricao:e.desc,Severidade:e.sev,Fase:e.fase,Duracao:e.dur})), 'eventos_qe.csv'); toast('CSV exportado com sucesso', 'success') }}>Exportar CSV</button></span>
+                <span className="panel__head-actions"><button className="btn btn-ghost btn-sm" onClick={() => { exportCSV(phaseEvents.map(e => ({ DataHora: e.ts, Tipo: e.tipo, Descricao: e.desc, Severidade: e.sev, Fase: e.fase, Duracao: e.dur })), 'eventos_qe.csv'); toast('CSV exportado com sucesso', 'success') }}>Exportar CSV</button></span>
               </div>
               <div style={{ overflow: 'auto', height: 'calc(100% - 38px)' }}>
                 <table className="tbl">
                   <thead><tr><th>Data/Hora</th><th>Tipo</th><th>Descrição</th><th>Sev.</th><th>Fase</th><th>Duração</th></tr></thead>
                   <tbody>
-                    {events
-                      .filter(e => fase === 'Geral' || e.fase === fase.slice(-1) || e.fase === 'ABC')
-                      .map((e, i) => (
-                        <tr key={i}>
-                          <td>{e.ts}</td><td>{e.tipo}</td><td>{e.desc}</td>
-                          <td><span className={SEV_CLASS[e.sev] ?? 'badge'}>{e.sev}</span></td>
-                          <td>{e.fase}</td><td>{e.dur}</td>
-                        </tr>
-                      ))}
+                    {phaseEvents.map((e, i) => (
+                      <tr key={`${e.ts}-${e.tipo}-${i}`}>
+                        <td>{e.ts}</td><td>{e.tipo}</td><td>{e.desc}</td>
+                        <td><span className={SEV_CLASS[e.sev] ?? 'badge'}>{e.sev}</span></td>
+                        <td>{e.fase}</td><td>{e.dur}</td>
+                      </tr>
+                    ))}
+                    {phaseEvents.length === 0 && (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--c-text-muted)' }}>Nenhum evento detectado para o filtro atual.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -255,10 +292,7 @@ export default function QualidadeEnergia({ onNavigate }) {
             <div className="panel">
               <div className="panel__head">Resumo Estatístico — {fase}</div>
               <div className="panel__body">
-                {[
-                  ['Afundamentos', '18', '14%'], ['Surtos', '5', '4%'], ['Interrupções', '3', '2%'],
-                  ['Desequilíbrio', '47', '37%'], ['Flicker', '32', '25%'], ['Harmônicas', '23', '18%'],
-                ].map(([t, n, p]) => (
+                {summaryRows(pqAnalysis.eventSummary, pqAnalysis.events.length).map(([t, n, p]) => (
                   <div key={t} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6 }}>
                     <span style={{ color: 'var(--c-text-muted)' }}>{t}</span>
                     <span><strong>{n}</strong> <span style={{ color: 'var(--c-text-light)' }}>({p})</span></span>

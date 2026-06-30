@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useMemo, useState, useEffect } from 'react'
+import { analyzePowerQuality } from '../utils/powerQuality'
 
 const AppCtx = createContext(null)
 
@@ -24,6 +25,8 @@ export function AppProvider({ children }) {
   const [dateFrom, setDateFrom] = useState(() => ls('smqe_dateFrom', '01/05/2024'))
   const [dateTo, setDateTo] = useState(() => ls('smqe_dateTo', '31/05/2024'))
   const [instruments, setInstruments] = useState(() => ls('smqe_instruments', DEFAULT_INSTRUMENTS))
+  const [importedDataset, setImportedDataset] = useState(null)
+  const pqAnalysis = useMemo(() => analyzePowerQuality(importedDataset), [importedDataset])
 
   useEffect(() => { localStorage.setItem('smqe_installation', JSON.stringify(installation)) }, [installation])
   useEffect(() => { localStorage.setItem('smqe_period', JSON.stringify(period)) }, [period])
@@ -50,6 +53,9 @@ export function AppProvider({ children }) {
       dateFrom, setDateFrom,
       dateTo, setDateTo,
       instruments, addInstrument, updateInstrument, removeInstrument,
+      importedDataset, setImportedDataset,
+      pqAnalysis,
+      hasImportedDataset: Boolean(importedDataset?.rows?.length),
     }}>
       {children}
     </AppCtx.Provider>

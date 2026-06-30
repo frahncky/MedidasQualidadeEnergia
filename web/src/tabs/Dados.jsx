@@ -4,6 +4,8 @@ import {
 } from 'recharts'
 import { useToast } from '../components/Toast'
 import { exportCSV } from '../utils/export'
+import { useAppContext } from '../context/AppContext'
+import { buildDemoPowerQualityDataset } from '../utils/powerQuality'
 
 const SOURCES_LIST = [
   { name: 'PQA-5000 #12345', group: 'Aquisições Locais',              status: 'Online',  color: '#16a34a' },
@@ -72,13 +74,18 @@ const QUALITY_CHECKS = [
   { name: 'Consistência trifásica',ok: true, val: 'OK',     tone: 'green' },
 ]
 
+function previewNoise(i) {
+  const value = Math.sin(i * 12.9898) * 43758.5453
+  return value - Math.floor(value)
+}
+
 const PREVIEW_ROWS = Array.from({ length: 20 }, (_, i) => ({
   timestamp: `2024-05-${String(i + 1).padStart(2,'0')} 00:00`,
   Va: +(219.5 + Math.sin(i*0.4)*1.2).toFixed(2),
   Vb: +(220.1 + Math.sin(i*0.4+2)*1.1).toFixed(2),
   Vc: +(219.8 + Math.sin(i*0.4+4)*1.3).toFixed(2),
   Ia: +(610 + Math.sin(i*0.3)*8).toFixed(1),
-  FP: +(0.92 + Math.random()*0.04).toFixed(3),
+  FP: +(0.92 + previewNoise(i)*0.04).toFixed(3),
 }))
 
 function detectDelimiter(header) {
@@ -111,7 +118,7 @@ function splitDelimitedLine(line, delimiter) {
   return cells
 }
 
-function parseCsvText(text, maxPreviewRows = 80) {
+function parseCsvText(text, maxPreviewRows = 5000) {
   const normalized = String(text ?? '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
   const lines = normalized.split('\n').filter(line => line.trim().length > 0)
   if (lines.length < 2) throw new Error('Arquivo CSV sem linhas de dados')
@@ -159,6 +166,7 @@ function suggestColumn(field, fallback, columns) {
 }
 export default function Dados() {
   const toast = useToast()
+  const { setImportedDataset, pqAnalysis } = useAppContext()
   const [format, setFormat] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -184,7 +192,11 @@ export default function Dados() {
     setLoading(true)
     setLoaded(false)
     setChecksRun(false)
-    setTimeout(() => { setLoading(false); setLoaded(true) }, 900)
+    setTimeout(() => {
+      setImportedDataset({ ...buildDemoPowerQualityDataset(), fileName: name, sourceType: 'Fonte simulada' })
+      setLoading(false)
+      setLoaded(true)
+    }, 900)
   }
 
   function loadFile(file) {
@@ -210,6 +222,15 @@ export default function Dados() {
       try {
         const parsed = parseCsvText(reader.result)
         setParsedData(parsed)
+        setImportedDataset({
+          fileName: file.name,
+          sourceType: 'Arquivo CSV',
+          columns: parsed.columns,
+          rows: parsed.rows,
+          totalRows: parsed.totalRows,
+          delimiter: parsed.delimiter,
+          importedAt: new Date().toISOString(),
+        })
         setLoaded(true)
         toast(`CSV importado: ${parsed.totalRows.toLocaleString('pt-BR')} registros`, 'success')
       } catch (error) {
@@ -282,6 +303,34 @@ export default function Dados() {
   const columnsLabel = hasParsedData ? parsedData.columns.length.toLocaleString('pt-BR') : '10'
   const delimiterLabel = hasParsedData ? (parsedData.delimiter === '\t' ? 'Tab' : parsedData.delimiter) : 'Detectado'
   const cleanExportRows = hasParsedData ? parsedData.rows : PREVIEW_ROWS
+  const chartData = useMemo(() => {
+    if (!hasParsedData) return WAVE
+    const columns = parsedData.columns
+    const pick = aliases => columns.find(column => aliases.some(alias => column.toLowerCase().replace(/[^a-z0-9_]/g, '').includes(alias)))
+    const map = {
+      va: pick(['va', 'va_kv', 'tensao_a']),
+      vb: pick(['vb', 'vb_kv', 'tensao_b']),
+      vc: pick(['vc', 'vc_kv', 'tensao_c']),
+      ia: pick(['ia', 'ia_a', 'corrente_a']),
+      ib: pick(['ib', 'ib_a', 'corrente_b']),
+      ic: pick(['ic', 'ic_a', 'corrente_c']),
+      f: pick(['freq', 'frequencia', 'frequency']),
+    }
+    const num = value => {
+      const parsed = Number(String(value ?? '').replace(',', '.').replace(/[^\d.\-+eE]/g, ''))
+      return Number.isFinite(parsed) ? parsed : null
+    }
+    return parsedData.rows.slice(0, 160).map((row, index) => ({
+      t: index + 1,
+      va: num(row[map.va]),
+      vb: num(row[map.vb]),
+      vc: num(row[map.vc]),
+      ia: num(row[map.ia]),
+      ib: num(row[map.ib]),
+      ic: num(row[map.ic]),
+      f: num(row[map.f]),
+    }))
+  }, [hasParsedData, parsedData])
   return (
     <div style={{ minHeight: 1080, display: 'grid', gridTemplateColumns: '320px minmax(720px, 1fr) 360px', gap: 14, padding: 14, overflow: 'visible' }}>
 
@@ -450,9 +499,9 @@ export default function Dados() {
         {/* Mini charts */}
         {loaded && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, height: 170 }}>
-            <MiniChart title="Tensões (kV)" keys={['va', 'vb', 'vc']} colors={['#1d4ed8', '#16a34a', '#dc2626']} />
-            <MiniChart title="Correntes (A)" keys={['ia', 'ib', 'ic']} colors={['#9333ea', '#0284c7', '#ea580c']} />
-            <MiniChart title="Frequência (Hz)" keys={['f']} colors={['#059669']} />
+            <MiniChart title="Tensões" data={chartData} keys={['va', 'vb', 'vc']} colors={['#1d4ed8', '#16a34a', '#dc2626']} />
+            <MiniChart title="Correntes" data={chartData} keys={['ia', 'ib', 'ic']} colors={['#9333ea', '#0284c7', '#ea580c']} />
+            <MiniChart title="Frequência (Hz)" data={chartData} keys={['f']} colors={['#059669']} />
           </div>
         )}
 
@@ -502,8 +551,8 @@ export default function Dados() {
         </div>
 
         <InfoPanel title="Frequência de Amostragem" rows={[
-          ['Detectada', loaded ? '49,98 Hz' : '—'],
-          ['Nominal', '50 Hz'], ['Tolerância', '1,0%'], ['Método', 'Auto'],
+          ['Detectada', loaded ? `${pqAnalysis.sampleRate.toLocaleString('pt-BR')} amostras/s` : '—'],
+          ['Nominal', `${pqAnalysis.nominalFrequency.toLocaleString('pt-BR')} Hz`], ['Tolerância', '1,0%'], ['Método', 'Auto'],
         ]} />
 
         <InfoPanel title="Filtros" rows={[
@@ -531,13 +580,13 @@ export default function Dados() {
   )
 }
 
-function MiniChart({ title, keys, colors }) {
+function MiniChart({ title, data, keys, colors }) {
   return (
     <div className="panel">
       <div className="panel__head">{title}</div>
       <div style={{ height: 125, padding: 8 }}>
         <ResponsiveContainer>
-          <LineChart data={WAVE}>
+          <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="t" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} width={38} />

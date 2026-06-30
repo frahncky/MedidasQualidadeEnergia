@@ -1,18 +1,85 @@
 import { useState, useMemo } from 'react'
 import {
-  Bar, BarChart, CartesianGrid, Legend, Line, LineChart,
+  CartesianGrid, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 
-function parseNum(str) {
+const SI_MULTIPLIERS = {
+  G: 1e9,
+  M: 1e6,
+  k: 1e3,
+  K: 1e3,
+  m: 1e-3,
+  u: 1e-6,
+  U: 1e-6,
+  µ: 1e-6,
+  μ: 1e-6,
+  n: 1e-9,
+  p: 1e-12,
+}
+
+function parseNum(str, unit = '') {
   if (str === '' || str == null) return NaN
-  return parseFloat(String(str).replace(',', '.'))
+  const raw = String(str).trim()
+  if (!raw) return NaN
+
+  const text = raw
+    .replace(/\s+/g, '')
+    .replace(',', '.')
+    .replace(/[−–—]/g, '-')
+
+  const compact = text.match(/^([+-]?\d+)([pnumuµμkKMG])(\d+)(.*)$/)
+  if (compact) {
+    const [, whole, prefix, frac, suffix] = compact
+    const value = Number(`${whole}.${frac}`)
+    return scaleByUnit(value, `${prefix}${suffix}`, unit)
+  }
+
+  const match = text.match(/^([+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?)(.*)$/)
+  if (!match) return NaN
+
+  const value = Number(match[1])
+  if (!Number.isFinite(value)) return NaN
+  return scaleByUnit(value, match[2], unit)
+}
+
+function scaleByUnit(value, sourceUnit = '', targetUnit = '') {
+  if (!sourceUnit) return value
+  const sourceScale = unitScale(sourceUnit)
+  const targetScale = targetUnit ? unitScale(targetUnit) : 1
+  return value * sourceScale / targetScale
+}
+
+function unitScale(unit = '') {
+  const clean = String(unit).trim()
+  if (!clean) return 1
+  const prefix = clean[0]
+  return Object.prototype.hasOwnProperty.call(SI_MULTIPLIERS, prefix)
+    ? SI_MULTIPLIERS[prefix]
+    : 1
 }
 function fmt(n, d = 2) {
   if (isNaN(n) || !isFinite(n)) return '—'
   return n.toFixed(d).replace('.', ',')
+}
+function fmtInput(n, d = 3) {
+  if (isNaN(n) || !isFinite(n)) return ''
+  return n.toFixed(d).replace(/\.?0+$/, '').replace('.', ',')
+}
+function fmtNominalPhaseVoltage(n) {
+  if (isNaN(n) || !isFinite(n)) return '—'
+  const nearest10 = Math.round(n / 10) * 10
+  if (n >= 200 && n < 1000 && Math.abs(n - nearest10) <= 1) return fmt(nearest10, 0)
+  return fmt(n, 1)
+}
+function nominalLineVoltageFromPhase(Vph) {
+  const line = Vph * Math.sqrt(3)
+  const nearest10 = Math.round(line / 10) * 10
+  return line >= 200 && line < 1000 && Math.abs(line - nearest10) <= 2
+    ? nearest10
+    : line
 }
 function fmtSgn(n, d = 2) {
   if (isNaN(n) || !isFinite(n)) return '—'
@@ -183,17 +250,15 @@ const TRI_LOAD_TYPES = [
   { id:'CAP', label:'Banco de Capacitores',   color:'#dc2626', fields:['Cuf'] },
 ]
 
-const TRI_SIMPLE_LOAD_TYPE_IDS = ['R', 'RL', 'RC', 'RLC']
-
 const DEFAULT_TRI_LOADS = {
-  ligacao:'Y', balanco:'eq', loadType:'RL',
-  R:'10', L:'0,05', C:'0,001', Cuf:'50',
+  ligacao:'Y', balanco:'eq', loadType:'RLC',
+  R:'10', L:'', C:'', Cuf:'50',
   Pn:'37', eta:'92', FPm:'0,87',
   // per-phase for unbalanced
-  A_lt:'RL', A_R:'10', A_L:'0,05', A_C:'0,001',
-  B_lt:'R',  B_R:'20', B_L:'0',    B_C:'0,001',
-  C_lt:'RC', C_R:'15', C_L:'0',    C_C:'0,002',
-  VL:'13800', freq:'60',
+  A_lt:'RLC', A_R:'10', A_L:'0,05', A_C:'',
+  B_lt:'RLC', B_R:'20', B_L:'',     B_C:'',
+  C_lt:'RLC', C_R:'15', C_L:'',     C_C:'2mF',
+  VL:'13800', freq:'60', vUnbalA:'', vUnbalB:'', vUnbalC:'',
 }
 
 // Returns impedance [Re, Im] per-phase (Y-equivalent) for a given load spec
@@ -213,7 +278,7 @@ function phaseZ(lt, vals, f, VL) {
   if (lt === 'RLC') return [R, XL - XC]
 
   if (lt === 'M3F' || lt === 'M1F') {
-    const Pn  = (parseNum(vals.Pn)  || 10) * 1000  // kW → W
+    const Pn  = (parseNum(vals.Pn, 'kW') || 10) * 1000  // kW → W
     const eta = (parseNum(vals.eta) || 90) / 100
     const FPm = parseNum(vals.FPm) || 0.85
     if (Pn <= 0 || VL <= 0) return [10, 2]
@@ -227,7 +292,7 @@ function phaseZ(lt, vals, f, VL) {
   }
 
   if (lt === 'CAP') {
-    const Cuf = (parseNum(vals.Cuf) || 10) * 1e-6  // μF → F
+    const Cuf = (parseNum(vals.Cuf, 'µF') || 10) * 1e-6  // μF → F
     const XCap = Cuf > 0 ? 1/(2*Math.PI*f*Cuf) : 1e6
     return [0, -XCap]
   }
@@ -339,10 +404,11 @@ function calcTriUnbalD(p) {
 }
 
 const TRI_LOAD_BASE = {
+  type: 'RLC',
   qty: '1',
   R: '10',
-  L: '0,05',
-  C: '0,001',
+  L: '',
+  C: '',
   Cuf: '50',
   Pn: '37',
   eta: '92',
@@ -350,7 +416,7 @@ const TRI_LOAD_BASE = {
 }
 
 const TRI_DEFAULT_CIRCUIT_LOADS = [
-  { id: 1, ...TRI_LOAD_BASE, scope: 'A', type: 'RL' },
+  { id: 1, ...TRI_LOAD_BASE, scope: 'A' },
 ]
 
 const TRI_CONNECTION_OPTIONS = [
@@ -366,18 +432,52 @@ const TRI_CONNECTION_OPTIONS = [
 const TRI_DIRECT_CONNECTION_OPTIONS = TRI_CONNECTION_OPTIONS.filter(option => option.id !== 'ABC')
 const TRI_STAR_TARGETS = ['A', 'B', 'C']
 const TRI_DELTA_TARGETS = ['AB', 'BC', 'CA']
+const TRI_PHASES = ['A', 'B', 'C']
+
+function triPhaseVoltageDeltaPct(p, phase) {
+  const raw = parseNum(p[`vUnbal${phase}`])
+  if (!Number.isFinite(raw)) return 0
+  return Math.max(-100, Math.min(raw, 100))
+}
+
+function triVoltageMapFromParams(p) {
+  const VL = parseNum(p.VL) || 13800
+  const V_ph = VL / Math.sqrt(3)
+  const deltas = Object.fromEntries(TRI_PHASES.map(phase => [phase, triPhaseVoltageDeltaPct(p, phase)]))
+  const phases = {
+    A: cx.polar(V_ph * (1 + deltas.A / 100), 0),
+    B: cx.polar(V_ph * (1 + deltas.B / 100), -2*Math.PI/3),
+    C: cx.polar(V_ph * (1 + deltas.C / 100), 2*Math.PI/3),
+  }
+  const lines = {
+    AB: cx.sub(phases.A, phases.B),
+    BC: cx.sub(phases.B, phases.C),
+    CA: cx.sub(phases.C, phases.A),
+  }
+  return {
+    VL,
+    V_ph,
+    phaseRef: Math.max(...TRI_PHASES.map(phase => cx.mag(phases[phase])), V_ph),
+    unbalancePct: Math.max(...TRI_PHASES.map(phase => Math.abs(deltas[phase]))),
+    phaseDeltasPct: deltas,
+    phases,
+    lines,
+    all: { ...phases, ...lines },
+  }
+}
 
 const TRI_EXAMPLE_MIXED_LOADS = [
-  { scope: 'A', type: 'RL', R: '10', L: '0,05' },
-  { scope: 'AB', type: 'RLC', R: '10', L: '0,05', C: '0,001' },
-  { scope: 'BC', type: 'R', R: '20' },
-  { scope: 'CA', type: 'RL', R: '15', L: '0,03' },
+  { scope: 'A', type: 'RLC', R: '10', L: '0,05', C: '' },
+  { scope: 'AB', type: 'RLC', R: '10', L: '0,05', C: '1mF' },
+  { scope: 'BC', type: 'RLC', R: '20', L: '', C: '' },
+  { scope: 'CA', type: 'RLC', R: '15', L: '0,03', C: '' },
 ]
 
 function triLoadWithDefaults(load) {
   return {
     ...TRI_LOAD_BASE,
     ...load,
+    type: 'RLC',
     qty: String(load.qty ?? TRI_LOAD_BASE.qty),
   }
 }
@@ -509,17 +609,9 @@ function triBranchLoadCopies(loads, target) {
 function calcTriCircuitLoads(p, loads) {
   const VL = parseNum(p.VL) || 13800
   const f = parseNum(p.freq) || 60
-  const V_ph = VL / Math.sqrt(3)
-  const phaseDefs = [
-    ['A', cx.polar(V_ph, 0)],
-    ['B', cx.polar(V_ph, -2*Math.PI/3)],
-    ['C', cx.polar(V_ph, 2*Math.PI/3)],
-  ]
-  const branchDefs = [
-    ['AB', cx.polar(VL, Math.PI/6)],
-    ['BC', cx.polar(VL, Math.PI/6 - 2*Math.PI/3)],
-    ['CA', cx.polar(VL, Math.PI/6 + 2*Math.PI/3)],
-  ]
+  const voltageMap = triVoltageMapFromParams(p)
+  const phaseDefs = TRI_PHASES.map(phase => [phase, voltageMap.phases[phase]])
+  const branchDefs = TRI_DELTA_TARGETS.map(target => [target, voltageMap.lines[target]])
 
   const phaseResults = phaseDefs.map(([target, V]) => {
     const Y = triBranchAdmittance(loads, target, f, VL)
@@ -577,7 +669,11 @@ function calcTriCircuitLoads(p, loads) {
   return {
     ligacao: 'MIX',
     VL,
-    V_ph,
+    V_ph: voltageMap.phaseRef,
+    voltageUnbalancePct: voltageMap.unbalancePct,
+    phaseVoltageDeltasPct: voltageMap.phaseDeltasPct,
+    phaseVoltages: voltageMap.phases,
+    lineVoltages: voltageMap.lines,
     branches,
     results: phaseResults,
     IN,
@@ -586,6 +682,54 @@ function calcTriCircuitLoads(p, loads) {
     S_tot,
     FP_tot: S_tot > 1e-9 ? Math.abs(P_tot) / S_tot : 1,
     lineCurrents: { A: IA, B: IB, C: IC },
+  }
+}
+
+function triPhaseVoltageMap(circuit) {
+  return Object.fromEntries((circuit.results || []).map(result => [result.ph, result.V]))
+}
+
+function triWattmeterReadings(circuit, config) {
+  const voltages = triPhaseVoltageMap(circuit)
+  const currents = circuit.lineCurrents || {}
+  const mode = config.mode || '0'
+  const onePhase = TRI_PHASES.includes(config.phase) ? config.phase : 'A'
+  const refPhase = TRI_PHASES.includes(config.ref) ? config.ref : 'B'
+
+  function reading(phase, ref, index) {
+    const V = ref === 'N' ? voltages[phase] : cx.sub(voltages[phase], voltages[ref])
+    const I = currents[phase] || [0, 0]
+    const P = cx.P(V || [0, 0], I)
+    return {
+      id: `W${index + 1}`,
+      phase,
+      ref,
+      voltageLabel: ref === 'N' ? `${phase}N` : `${phase}${ref}`,
+      P,
+    }
+  }
+
+  const readings = mode === '0'
+    ? []
+    : mode === '1'
+      ? [reading(onePhase, 'N', 0)]
+      : mode === '2'
+        ? TRI_PHASES.filter(phase => phase !== refPhase).map((phase, index) => reading(phase, refPhase, index))
+        : TRI_PHASES.map((phase, index) => reading(phase, 'N', index))
+
+  const total = readings.reduce((sum, item) => sum + item.P, 0)
+  const error = total - circuit.P_tot
+  const neutral = circuit.IN ? cx.mag(circuit.IN) : 0
+  const aronApplicable = mode !== '2' || neutral <= 1e-6
+
+  return {
+    mode,
+    ref: refPhase,
+    readings,
+    total,
+    error,
+    neutral,
+    aronApplicable,
   }
 }
 
@@ -604,9 +748,9 @@ const TRI_PRESETS = [
 ]
 
 function calcTri(p) {
-  const V = parseNum(p.v1_tensao) * 1000
-  const P = parseNum(p.l1_p) * 1000
-  const Q = parseNum(p.l1_q) * 1000
+  const V = parseNum(p.v1_tensao, 'kV') * 1000
+  const P = parseNum(p.l1_p, 'kW') * 1000
+  const Q = parseNum(p.l1_q, 'kvar') * 1000
   const R = parseNum(p.r1_valor)
   const I_q  = parseNum(p.q1_inominal)
   const I_tc = parseNum(p.tc1_primario)
@@ -640,7 +784,7 @@ function validateTri(p, c) {
 }
 
 function genNetlist(p, c) {
-  return `* Circuito Trifásico — SMQE\nFONTE_CA  V1  3  ${parseNum(p.v1_tensao)*1000}  ${p.v1_freq}  LIG:${p.v1_ligacao}\nDISJUNTOR Q1  3  ${p.q1_inominal} A\nTC        TC1 3  ${p.tc1_primario}/${p.tc1_secundario} A\nRESISTOR  R1  3  ${p.r1_valor} Ω\nCARGA_RLC L1  3  ${p.l1_p} kW  ${p.l1_q} kvar\n\n* I_linha = ${fmt(c.I)} A\n* FP      = ${fmt(c.FP,4)}  (φ=${fmt(c.phi,1)}°)\n* V_carga = ${fmt(c.V_load/1000,3)} kV\n* η       = ${fmt(c.eta)}%\nFIM`
+  return `* Circuito Trifásico — SMQE\nFONTE_CA  V1  3  ${parseNum(p.v1_tensao, 'kV')*1000}  ${p.v1_freq}  LIG:${p.v1_ligacao}\nDISJUNTOR Q1  3  ${p.q1_inominal} A\nTC        TC1 3  ${p.tc1_primario}/${p.tc1_secundario} A\nRESISTOR  R1  3  ${p.r1_valor} Ω\nCARGA_RLC L1  3  ${p.l1_p} kW  ${p.l1_q} kvar\n\n* I_linha = ${fmt(c.I)} A\n* FP      = ${fmt(c.FP,4)}  (φ=${fmt(c.phi,1)}°)\n* V_carga = ${fmt(c.V_load/1000,3)} kV\n* η       = ${fmt(c.eta)}%\nFIM`
 }
 
 /* ─── Shared UI primitives ───────────────────────────────────────────────── */
@@ -660,9 +804,9 @@ function PField({ label, unit, value, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
       <span style={{ fontSize: 11, color: 'var(--c-text-muted)', flex: 1, minWidth: 0 }}>{label}</span>
-      <input className="form-input" style={{ width: 70, height: 26, fontSize: 12, textAlign: 'right' }}
+      <input className="form-input" style={{ width: 76, height: 26, fontSize: 12, textAlign: 'right' }}
         value={value} onChange={e => onChange(e.target.value)} />
-      <span style={{ fontSize: 11, color: 'var(--c-text-light)', width: 28, flexShrink: 0 }}>{unit}</span>
+      <span style={{ fontSize: 11, color: 'var(--c-text-light)', width: 24, flexShrink: 0 }}>{unit}</span>
     </div>
   )
 }
@@ -671,10 +815,63 @@ function PSelect({ label, value, onChange, options }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
       <span style={{ fontSize: 11, color: 'var(--c-text-muted)', flex: 1 }}>{label}</span>
-      <select className="form-input" style={{ width: 70, height: 26, fontSize: 12 }} value={value} onChange={e => onChange(e.target.value)}>
+      <select className="form-input" style={{ width: 76, height: 26, fontSize: 12 }} value={value} onChange={e => onChange(e.target.value)}>
         {options.map(o => <option key={o}>{o}</option>)}
       </select>
-      <span style={{ width: 28 }} />
+      <span style={{ width: 24 }} />
+    </div>
+  )
+}
+
+function ReadoutField({ label, unit, value, onChange }) {
+  const editable = typeof onChange === 'function'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+      <span style={{ fontSize: 11, color: 'var(--c-text-muted)', flex: 1, minWidth: 0 }}>{label}</span>
+      <input
+        className="form-input"
+        style={{ width: 76, height: 26, fontSize: 12, textAlign: 'right', color: editable ? 'var(--c-text)' : 'var(--c-text-muted)' }}
+        value={value}
+        readOnly={!editable}
+        onChange={editable ? event => onChange(event.target.value) : undefined}
+      />
+      <span style={{ fontSize: 11, color: 'var(--c-text-light)', width: 24, flexShrink: 0 }}>{unit}</span>
+    </div>
+  )
+}
+
+function TriPhaseVoltageUnbalanceFields({ p, voltageDrafts, onPercentChange, onVoltageChange }) {
+  const voltageMap = triVoltageMapFromParams(p)
+  const phaseColors = { A:'#dc2626', B:'#16a34a', C:'#2563eb' }
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'20px 1fr 1fr', gap:5, alignItems:'center', marginBottom:4 }}>
+        <span />
+        <span style={{ fontSize:9.5, color:'var(--c-text-muted)', textAlign:'right', fontWeight:700 }}>Δ%</span>
+        <span style={{ fontSize:9.5, color:'var(--c-text-muted)', textAlign:'right', fontWeight:700 }}>VFN</span>
+      </div>
+      {TRI_PHASES.map(phase => {
+        const phaseDelta = voltageMap.phaseDeltasPct?.[phase] ?? 0
+        const phaseVoltage = cx.mag(voltageMap.phases[phase])
+        const voltageValue = voltageDrafts[phase] ?? (Math.abs(phaseDelta) > 0.0005 ? fmt(phaseVoltage, 1) : fmtNominalPhaseVoltage(phaseVoltage))
+        return (
+          <div key={phase} style={{ display:'grid', gridTemplateColumns:'20px 1fr 1fr', gap:5, alignItems:'center', marginBottom:5 }}>
+            <span style={{ fontSize:11, fontWeight:900, color:phaseColors[phase] }}>{phase}</span>
+            <input
+              className="form-input"
+              style={{ width:'100%', height:24, fontSize:11, textAlign:'right', padding:'0 5px' }}
+              value={p[`vUnbal${phase}`] ?? ''}
+              onChange={event => onPercentChange(phase, event.target.value)}
+            />
+            <input
+              className="form-input"
+              style={{ width:'100%', height:24, fontSize:11, textAlign:'right', padding:'0 5px' }}
+              value={voltageValue}
+              onChange={event => onVoltageChange(phase, event.target.value)}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -682,8 +879,8 @@ function PSelect({ label, value, onChange, options }) {
 function Result({ label, value, highlight }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
-      <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{label}</span>
-      <span style={{ fontWeight: 700, fontSize: 12, color: highlight ? 'var(--c-danger)' : 'var(--c-text)' }}>{value}</span>
+      <span style={{ fontSize: 11, color: 'var(--c-text-muted)', flex: '1 1 auto', minWidth: 0, paddingRight: 8 }}>{label}</span>
+      <span style={{ fontWeight: 700, fontSize: 12, color: highlight ? 'var(--c-danger)' : 'var(--c-text)', textAlign: 'right', whiteSpace: 'nowrap' }}>{value}</span>
     </div>
   )
 }
@@ -1398,42 +1595,18 @@ function TriPhasor3F({ VA_I, VB_I, VC_I, V_ph, inLabel }) {
 /* ─── LoadParamFields helper ─────────────────────────────────────────────── */
 
 function LoadParamFields({ lt, prefix, vals, onChange }) {
-  const T = TRI_LOAD_TYPES.find(t => t.id === lt) ?? TRI_LOAD_TYPES.find(t => t.id === 'RL')
+  const T = TRI_LOAD_TYPES.find(t => t.id === lt) ?? TRI_LOAD_TYPES.find(t => t.id === 'RLC')
   const has = f => T.fields.includes(f)
   const p   = prefix ? prefix+'_' : ''
   return <>
-    {has('R')   && <PField label="R" unit="Ω" value={vals[p+'R']   ?? '10'}   onChange={v=>onChange(p+'R',v)}/>}
-    {has('L')   && <PField label="L" unit="H" value={vals[p+'L']   ?? '0,05'} onChange={v=>onChange(p+'L',v)}/>}
-    {has('C')   && <PField label="C" unit="F" value={vals[p+'C']   ?? '0,001'}onChange={v=>onChange(p+'C',v)}/>}
+    {has('R')   && <PField label="R" unit="Ω" value={vals[p+'R']   ?? ''}     onChange={v=>onChange(p+'R',v)}/>}
+    {has('L')   && <PField label="L" unit="H" value={vals[p+'L']   ?? ''}     onChange={v=>onChange(p+'L',v)}/>}
+    {has('C')   && <PField label="C" unit="F" value={vals[p+'C']   ?? ''}     onChange={v=>onChange(p+'C',v)}/>}
     {has('Pn')  && <PField label="Pn"  unit="kW" value={vals[p+'Pn']  ?? '37'}  onChange={v=>onChange(p+'Pn',v)}/>}
     {has('eta') && <PField label="η"   unit="%"  value={vals[p+'eta'] ?? '92'}  onChange={v=>onChange(p+'eta',v)}/>}
     {has('FPm') && <PField label="FP motor" unit="" value={vals[p+'FPm'] ?? '0,87'} onChange={v=>onChange(p+'FPm',v)}/>}
     {has('Cuf') && <PField label="C" unit="μF" value={vals[p+'Cuf'] ?? '50'}   onChange={v=>onChange(p+'Cuf',v)}/>}
   </>
-}
-
-function TriSimpleTypePicker({ value, onChange }) {
-  return (
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:4, marginBottom:8 }}>
-      {TRI_SIMPLE_LOAD_TYPE_IDS.map(id => {
-        const t = triType(id)
-        return (
-          <button key={id} className={`btn btn-sm${value === id ? '' : ' btn-ghost'}`}
-            style={{
-              justifyContent:'center',
-              fontSize:9,
-              padding:'3px 4px',
-              background:value === id ? t.color : undefined,
-              color:value === id ? '#fff' : undefined,
-              borderColor:t.color,
-            }}
-            onClick={()=>onChange(id)}>
-            {id}
-          </button>
-        )
-      })}
-    </div>
-  )
 }
 
 function TriConnectionPicker({ value, onChange, includeABC = true }) {
@@ -1479,10 +1652,7 @@ function TriAbcLoadFields({ load, onChange }) {
         ))}
       </div>
       {abcLoad.abcBalanco === 'eq' ? (
-        <>
-          <TriSimpleTypePicker value={abcLoad.type} onChange={v=>onChange('type', v)} />
-          <LoadParamFields lt={abcLoad.type} prefix="" vals={abcLoad} onChange={onChange}/>
-        </>
+        <LoadParamFields lt="RLC" prefix="" vals={abcLoad} onChange={onChange}/>
       ) : (
         triAbcTargets(abcLoad).map(target => {
           const targetLoad = triAbcTargetLoad(abcLoad, target)
@@ -1490,8 +1660,7 @@ function TriAbcLoadFields({ load, onChange }) {
           return (
             <div key={target} className="surface-box" style={{ padding:8, marginBottom:7 }}>
               <div style={{ fontSize:11, fontWeight:800, marginBottom:7 }}>{triScopeShort(target)}</div>
-              <TriSimpleTypePicker value={targetLoad.type} onChange={v=>setTarget('type', v)} />
-              <LoadParamFields lt={targetLoad.type} prefix="" vals={targetLoad} onChange={setTarget}/>
+              <LoadParamFields lt="RLC" prefix="" vals={targetLoad} onChange={setTarget}/>
             </div>
           )
         })
@@ -1538,9 +1707,8 @@ function TriInlineLoadEditor({ load, onChange, onClose, onRemove }) {
           <TriAbcLoadFields load={load} onChange={onChange} />
         ) : (
           <>
-            <TriSimpleTypePicker value={load.type} onChange={v=>onChange('type', v)} />
             <PField label="Qtd." unit="" value={load.qty} onChange={v=>onChange('qty', v)} />
-            <LoadParamFields lt={load.type} prefix="" vals={load} onChange={onChange}/>
+            <LoadParamFields lt="RLC" prefix="" vals={load} onChange={onChange}/>
           </>
         )}
       </div>
@@ -1556,44 +1724,39 @@ function TriInlineLoadEditor({ load, onChange, onClose, onRemove }) {
   )
 }
 
-function TriSimpleLoadEditor({ title, load, onChange }) {
-  const t = triType(load.type)
-  return (
-    <div className="surface-box" style={{ padding:8, marginBottom:7 }}>
-      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:7 }}>
-        <b style={{ fontSize:11 }}>{title}</b>
-        <span className="badge" style={{ marginLeft:'auto', background:t.color, color:'#fff' }}>{load.type}</span>
-      </div>
-      <TriSimpleTypePicker value={load.type} onChange={type => onChange('type', type)} />
-      <LoadParamFields lt={load.type} prefix="" vals={load} onChange={onChange}/>
-    </div>
-  )
-}
-
 function triType(id) {
   return TRI_LOAD_TYPES.find(t => t.id === id) ?? TRI_LOAD_TYPES[0]
 }
 
+function triHasValue(value) {
+  return value != null && String(value).trim() !== ''
+}
+
+function triValueWithUnit(value, unit) {
+  const text = String(value).trim()
+  return /[a-zA-ZΩµμ%]/.test(text) ? text : `${text} ${unit}`
+}
+
 function triSpecParts(spec) {
   return spec.type.fields.map(field => {
-    if (field === 'R') return `R ${spec.vals.R ?? '—'} Ω`
-    if (field === 'L') return `L ${spec.vals.L ?? '—'} H`
-    if (field === 'C') return `C ${spec.vals.C ?? '—'} F`
-    if (field === 'Cuf') return `C ${spec.vals.Cuf ?? '—'} μF`
-    if (field === 'Pn') return `Pn ${spec.vals.Pn ?? '—'} kW`
-    if (field === 'eta') return `η ${spec.vals.eta ?? '—'}%`
-    if (field === 'FPm') return `FP ${spec.vals.FPm ?? '—'}`
+    if (field === 'R') return triHasValue(spec.vals.R) ? `R ${triValueWithUnit(spec.vals.R, 'Ω')}` : ''
+    if (field === 'L') return triHasValue(spec.vals.L) ? `L ${triValueWithUnit(spec.vals.L, 'H')}` : ''
+    if (field === 'C') return triHasValue(spec.vals.C) ? `C ${triValueWithUnit(spec.vals.C, 'F')}` : ''
+    if (field === 'Cuf') return triHasValue(spec.vals.Cuf) ? `C ${triValueWithUnit(spec.vals.Cuf, 'μF')}` : ''
+    if (field === 'Pn') return triHasValue(spec.vals.Pn) ? `Pn ${triValueWithUnit(spec.vals.Pn, 'kW')}` : ''
+    if (field === 'eta') return triHasValue(spec.vals.eta) ? `η ${triValueWithUnit(spec.vals.eta, '%')}` : ''
+    if (field === 'FPm') return triHasValue(spec.vals.FPm) ? `FP ${spec.vals.FPm}` : ''
     return ''
   }).filter(Boolean)
 }
 
 function triSpecFullLine(spec) {
-  return triSpecParts(spec).join(' · ') || spec.type.label
+  return triSpecParts(spec).join(' · ') || 'Sem elementos'
 }
 
 function triSpecTextLines(spec, size = 2) {
   const parts = triSpecParts(spec)
-  if (parts.length === 0) return [spec.type.label]
+  if (parts.length === 0) return ['Sem elementos']
   const lines = []
   for (let i = 0; i < parts.length; i += size) {
     lines.push(parts.slice(i, i + size).join(' · '))
@@ -1601,16 +1764,26 @@ function triSpecTextLines(spec, size = 2) {
   return lines
 }
 
-function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad, onUpdateLoad, onRemoveLoad, onCloseEditor }) {
+function TriCircuitBuilderSvg({ p, circuit, loads, wattmeterReadings, selectedLoadId, onSelectLoad, onUpdateLoad, onRemoveLoad, onCloseEditor }) {
   const colors = { A:'#dc2626', B:'#16a34a', C:'#2563eb', N:'#64748b', AB:'#dc2626', BC:'#16a34a', CA:'#2563eb' }
   const visualCount = Math.max(1, loads.length)
   const W = Math.max(880, 260 + visualCount * 200)
-  const H = 465
-  const y = { A:62, B:91, C:120, N:350 }
+  const H = 515
+  const y = { A:64, B:106, C:148, N:392 }
   const loadW = 176
   const loadH = 148
-  const loadTop = 160
+  const loadTop = 192
   const loadBottom = loadTop + loadH
+  const sourceY = y.B
+  const sourceUnbalanceLines = circuit.voltageUnbalancePct
+    ? TRI_PHASES.map(phase => {
+      const pct = circuit.phaseVoltageDeltasPct?.[phase] ?? 0
+      return {
+        phase,
+        text: `${phase}: ${pct >= 0 ? '+' : ''}${fmt(pct, 1)}%`,
+      }
+    })
+    : []
   const phaseCurrentLabels = ['A', 'B', 'C'].map(ph => {
     const I = circuit.lineCurrents?.[ph] || [0, 0]
     return `I${ph} = ${fmt(cx.mag(I), 3)} ∠ ${fmt(cx.arg(I) * 180 / Math.PI, 1)}° A`
@@ -1618,8 +1791,17 @@ function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad,
   const neutralCurrentLabel = circuit.IN
     ? `IN = ${fmt(cx.mag(circuit.IN), 3)} ∠ ${fmt(cx.arg(circuit.IN) * 180 / Math.PI, 1)}° A`
     : null
+  const wattmeterSummaryLines = wattmeterReadings?.readings?.length ? [
+    `${wattmeterReadings.mode === '2' ? 'Aron (3 fios)' : 'Wattímetros'} · ${wattmeterReadings.readings.map(item => `${item.id}=${fmt(item.P/1000, 4)} kW`).join(' · ')}`,
+    wattmeterReadings.readings.length > 1
+      ? wattmeterReadings.mode === '2' && !wattmeterReadings.aronApplicable
+        ? `Aron não aplicável ao total · IN = ${fmt(wattmeterReadings.neutral, 4)} A`
+        : `Soma W = ${fmt(wattmeterReadings.total/1000, 4)} kW · ΔP = ${fmt(wattmeterReadings.error/1000, 4)} kW`
+      : null,
+  ].filter(Boolean) : []
   const summaryLines = [
     `Resumo total · P = ${fmt(circuit.P_tot/1000, 2)} kW · Q = ${fmt(circuit.Q_tot/1000, 2)} kvar · S = ${fmt(circuit.S_tot/1000, 2)} kVA · FP = ${fmt(circuit.FP_tot, 4)}`,
+    ...wattmeterSummaryLines,
     phaseCurrentLabels.join(' · '),
     neutralCurrentLabel,
   ].filter(Boolean)
@@ -1629,7 +1811,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad,
   const selectedLoad = selectedLoadIndex >= 0 ? loads[selectedLoadIndex] : null
 
   function loadCenterX(index) {
-    return 255 + index * 200
+    return 292 + index * 200
   }
 
   function PhaseBuses() {
@@ -1646,6 +1828,31 @@ function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad,
           <text x="125" y={y.N-8} fontSize="13" fontWeight="800" fill={colors.N}>N</text>
         </g>
       </>
+    )
+  }
+
+  function WattmeterInstruments() {
+    const readings = wattmeterReadings?.readings || []
+    if (!readings.length) return null
+    return (
+      <g>
+        {readings.map(item => {
+          const mx = 152
+          const my = y[item.phase]
+          const refY = item.ref === 'N' ? y.N : y[item.ref]
+          const leadX = mx + 14
+          return (
+            <g key={item.id}>
+              <line x1={leadX} y1={my} x2={leadX} y2={refY} stroke="#d97706" strokeWidth="1.6" strokeDasharray="4 4" opacity=".9" />
+              <circle cx={leadX} cy={refY} r="3.2" fill="#d97706" />
+              <circle cx={mx} cy={my} r="11" fill="var(--c-surface)" stroke="#d97706" strokeWidth="2" />
+              <text x={mx} y={my + 4} textAnchor="middle" fontSize="10" fontWeight="900" fill="#d97706">W</text>
+              <text x={mx} y={my - 15} textAnchor="middle" fontSize="8" fontWeight="800" fill="#92400e">{item.id}</text>
+              <title>{`${item.id}: I${item.phase}, V${item.voltageLabel}, ${fmt(item.P/1000, 4)} kW`}</title>
+            </g>
+          )
+        })}
+      </g>
     )
   }
 
@@ -1673,7 +1880,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad,
     const branchLoad = triTargetLoad(load, target) || load
     const spec = { type: triType(branchLoad.type), vals: triLoadVals(branchLoad) }
     const detail = triSpecParts(spec).slice(0, 2).join(' · ')
-    return `${triScopeShort(target)} ${branchLoad.type}${detail ? ` · ${detail}` : ''}`
+    return `${triScopeShort(target)} · ${detail || 'Sem elementos'}`
   }
 
   function editorPosition(index, load) {
@@ -1705,10 +1912,10 @@ function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad,
     const accentColor = isAbc && load.abcBalanco === 'deseq' ? '#475569' : spec.type.color
     const headerText = isAbc
       ? `ABC · ${triAbcModeText(load)} · x${qty}`
-      : `${load.type} · ${scope} · x${qty}`
+      : `${scope} · x${qty}`
     const titleText = isAbc
       ? `${scope}: ${triAbcModeText(load)} — ${specLines.join(' | ')}`
-      : `${scope}: ${spec.type.label} — ${triSpecFullLine(spec)}`
+      : `${scope}: ${triSpecFullLine(spec)}`
     const powerY = loadTop + 45 + specLines.length * 11
     const currentY = powerY + 34
     const hasNeutral = targets.some(target => ['A', 'B', 'C'].includes(target))
@@ -1789,10 +1996,28 @@ function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad,
       <text x="28" y="34" fontSize="12" fontWeight="800" fill="var(--c-text)">
         Circuito montado · 3F+N · cargas fase-neutro e entre fases
       </text>
-      <circle cx="70" cy="91" r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
-      <text x="70" y="98" textAnchor="middle" fontSize="24">~</text>
-      <text x="70" y="140" textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
+      <circle cx="70" cy={sourceY} r="31" fill="var(--c-surface)" stroke="var(--c-text)" strokeWidth="2" />
+      <text x="70" y={sourceY + 7} textAnchor="middle" fontSize="24">~</text>
+      <text x="70" y={sourceY + 49} textAnchor="middle" fontSize="10" fill="var(--c-text-muted)">{p.VL} V / {p.freq} Hz</text>
+      {sourceUnbalanceLines.length > 0 && (
+        <g fontFamily="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+          {sourceUnbalanceLines.map((line, index) => (
+            <text
+              key={line.phase}
+              x="44"
+              y={sourceY + 64 + index * 12}
+              textAnchor="start"
+              fontSize="9"
+              fontWeight="800"
+              fill={colors[line.phase]}
+            >
+              {line.text}
+            </text>
+          ))}
+        </g>
+      )}
       <PhaseBuses />
+      <WattmeterInstruments />
       {loads.map((load, index) => <CircuitLoadRect key={load.id} load={load} index={index} />)}
 
       {loads.length === 0 && (
@@ -1817,7 +2042,7 @@ function TriCircuitBuilderSvg({ p, circuit, loads, selectedLoadId, onSelectLoad,
             y={summaryBoxY + 19 + index * 14}
             fontSize="10.5"
             fontWeight={index === 0 ? '800' : '700'}
-            fill="var(--c-text-muted)"
+            fill={line.startsWith('Aron não aplicável') ? 'var(--c-danger)' : 'var(--c-text-muted)'}
           >
             {line}
           </text>
@@ -1860,14 +2085,7 @@ function triLoadCurrentInfo(load, p, target) {
   const f = parseNum(p.freq) || 60
   const branchLoad = triTargetLoad(load, target) || load
   const Y = triLoadAdmittance(branchLoad, f, VL)
-  const voltages = {
-    A: cx.polar(VL / Math.sqrt(3), 0),
-    B: cx.polar(VL / Math.sqrt(3), -2*Math.PI/3),
-    C: cx.polar(VL / Math.sqrt(3), 2*Math.PI/3),
-    AB: cx.polar(VL, Math.PI/6),
-    BC: cx.polar(VL, Math.PI/6 - 2*Math.PI/3),
-    CA: cx.polar(VL, Math.PI/6 + 2*Math.PI/3),
-  }
+  const voltages = triVoltageMapFromParams(p).all
   const V = voltages[target] || [0, 0]
   const I = cx.mul(V, Y)
 
@@ -1878,14 +2096,7 @@ function triLoadContribution(load, p) {
   const VL = parseNum(p.VL) || 13800
   const f = parseNum(p.freq) || 60
   const targets = triLoadTargets(load)
-  const voltages = {
-    A: cx.polar(VL / Math.sqrt(3), 0),
-    B: cx.polar(VL / Math.sqrt(3), -2*Math.PI/3),
-    C: cx.polar(VL / Math.sqrt(3), 2*Math.PI/3),
-    AB: cx.polar(VL, Math.PI/6),
-    BC: cx.polar(VL, Math.PI/6 - 2*Math.PI/3),
-    CA: cx.polar(VL, Math.PI/6 + 2*Math.PI/3),
-  }
+  const voltages = triVoltageMapFromParams(p).all
 
   return targets.reduce((sum, target) => {
     const branchLoad = triTargetLoad(load, target)
@@ -1905,62 +2116,67 @@ function triLoadContribution(load, p) {
   }, { P: 0, Q: 0, S: 0, I: 0 })
 }
 
+function triFixed(value, digits = 4) {
+  return Number.isFinite(value) ? +value.toFixed(digits) : 0
+}
+
+function triCircuitEvolutionPoint(circuit, name) {
+  return {
+    name,
+    fp: triFixed(circuit.S_tot > 1e-9 ? Math.abs(circuit.P_tot) / circuit.S_tot : 1),
+    ia: triFixed(cx.mag(circuit.lineCurrents.A)),
+    ib: triFixed(cx.mag(circuit.lineCurrents.B)),
+    ic: triFixed(cx.mag(circuit.lineCurrents.C)),
+    in: triFixed(cx.mag(circuit.IN)),
+  }
+}
+
 function triLoadChartData(loads, p) {
-  return loads.map((load, index) => {
-    const c = triLoadContribution(load, p)
-    const name = load.scope === 'ABC'
-      ? `${index + 1}-ABC-${load.abcLigacao === 'D' ? 'Δ' : 'Y'}-${load.abcBalanco === 'deseq' ? 'des' : 'eq'}`
-      : `${index + 1}-${load.type}-${load.scope}`
-    return {
-      name,
-      fp: c.S > 1e-9 ? Math.abs(c.P) / c.S : 1,
-      p: +(c.P / 1000).toFixed(4),
-      q: +(c.Q / 1000).toFixed(4),
-      s: +(c.S / 1000).toFixed(4),
-      i: +c.I.toFixed(4),
-    }
+  const points = [triCircuitEvolutionPoint(calcTriCircuitLoads(p, []), '0')]
+  loads.forEach((load, index) => {
+    const label = load.scope === 'ABC'
+      ? `${index + 1} ABC`
+      : `${index + 1} ${triScopeShort(load.scope)}`
+    points.push(triCircuitEvolutionPoint(calcTriCircuitLoads(p, loads.slice(0, index + 1)), label))
   })
+  return points
 }
 
 function TriLoadCharts({ data }) {
-  const chartData = data.length ? data : [{ name:'-', fp:0, p:0, q:0, s:0, i:0 }]
+  const chartData = data.length ? data : [{ name:'0', fp:1, ia:0, ib:0, ic:0, in:0 }]
   const tick = { fontSize: 9 }
+  const tooltipStyle = {
+    background:'var(--c-surface)',
+    border:'1px solid var(--c-border)',
+    color:'var(--c-text)',
+    fontSize:11,
+  }
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:8, height:'calc(100% - 38px)', padding:8 }}>
-      <div>
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:8, height:'calc(100% - 38px)', padding:8, minHeight:0 }}>
+      <div style={{ minHeight:0 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+          <LineChart data={chartData} margin={{ top: 8, right: 10, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="name" tick={tick} interval={0} />
             <YAxis tick={tick} domain={[0, 1]} />
-            <Tooltip />
-            <Line type="monotone" dataKey="fp" name="FP" stroke="#7c3aed" strokeWidth={2} dot />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value) => fmt(value, 4)} />
+            <Line type="monotone" dataKey="fp" name="FP" stroke="#7c3aed" strokeWidth={2.4} dot={false} activeDot={{ r:4 }} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <div>
+      <div style={{ minHeight:0 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+          <LineChart data={chartData} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="name" tick={tick} interval={0} />
             <YAxis tick={tick} />
-            <Tooltip />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [`${fmt(value, 4)} A`, name]} />
             <Legend wrapperStyle={{ fontSize: 10 }} />
-            <Bar dataKey="p" name="P kW" fill="#1d4ed8" />
-            <Bar dataKey="q" name="Q kvar" fill="#d97706" />
-            <Bar dataKey="s" name="S kVA" fill="#16a34a" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      <div>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="name" tick={tick} interval={0} />
-            <YAxis tick={tick} />
-            <Tooltip />
-            <Bar dataKey="i" name="I A" fill="#dc2626" />
-          </BarChart>
+            <Line type="monotone" dataKey="ia" name="IA" stroke="#dc2626" strokeWidth={2} dot={false} activeDot={{ r:4 }} isAnimationActive={false} />
+            <Line type="monotone" dataKey="ib" name="IB" stroke="#16a34a" strokeWidth={2} dot={false} activeDot={{ r:4 }} isAnimationActive={false} />
+            <Line type="monotone" dataKey="ic" name="IC" stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r:4 }} isAnimationActive={false} />
+            <Line type="monotone" dataKey="in" name="IN" stroke="#f97316" strokeWidth={2} dot={false} activeDot={{ r:4 }} isAnimationActive={false} />
+          </LineChart>
         </ResponsiveContainer>
       </div>
     </div>
@@ -1972,13 +2188,70 @@ function TriLoadCharts({ data }) {
 function SubCATri() {
   const [p, setP]           = useState(DEFAULT_TRI_LOADS)
   const [triLoads, setTriLoads] = useState(TRI_DEFAULT_CIRCUIT_LOADS)
-  const [loadDraft, setLoadDraft] = useState({ ...TRI_LOAD_BASE, scope:'A', type:'RL', abcLigacao:'Y', abcBalanco:'eq' })
+  const [loadDraft, setLoadDraft] = useState({ ...TRI_LOAD_BASE, scope:'A', abcLigacao:'Y', abcBalanco:'eq' })
   const [selectedLoadId, setSelectedLoadId] = useState(null)
-  const sp = (k, v) => setP(prev => ({...prev, [k]: v}))
+  const [wattmeter, setWattmeter] = useState({ mode:'0', phase:'A', ref:'B' })
+  const [phaseVoltageDrafts, setPhaseVoltageDrafts] = useState({})
+  const [nominalPhaseVoltageDraft, setNominalPhaseVoltageDraft] = useState(null)
+  const sp = (k, v) => {
+    if (k === 'VL') {
+      setPhaseVoltageDrafts({})
+      setNominalPhaseVoltageDraft(null)
+    }
+    setP(prev => ({...prev, [k]: v}))
+  }
   const sd = (k, v) => setLoadDraft(prev => ({ ...prev, [k]: v }))
+  const sw = (k, v) => setWattmeter(prev => ({ ...prev, [k]: v }))
 
   const triCircuit = useMemo(() => calcTriCircuitLoads(p, triLoads), [p, triLoads])
   const triCharts = useMemo(() => triLoadChartData(triLoads, p), [triLoads, p])
+  const wattmeterReadings = useMemo(() => triWattmeterReadings(triCircuit, wattmeter), [triCircuit, wattmeter])
+  const nominalPhaseVoltage = (parseNum(p.VL) || 13800) / Math.sqrt(3)
+  const nominalPhaseVoltageValue = nominalPhaseVoltageDraft ?? fmtNominalPhaseVoltage(nominalPhaseVoltage)
+
+  function setNominalPhaseVoltageValue(value) {
+    setNominalPhaseVoltageDraft(value)
+    setPhaseVoltageDrafts({})
+    if (!String(value).trim()) {
+      setP(prev => ({ ...prev, VL: '' }))
+      return
+    }
+
+    const actual = parseNum(value, 'V')
+    if (!Number.isFinite(actual) || actual <= 0) return
+    const nextVL = nominalLineVoltageFromPhase(actual)
+    setP(prev => ({ ...prev, VL: fmtInput(nextVL, 3) }))
+  }
+
+  function setPhaseVoltagePercent(phase, value) {
+    const VL = parseNum(p.VL) || 13800
+    const Vph = VL / Math.sqrt(3)
+    const pct = triPhaseVoltageDeltaPct({ [`vUnbal${phase}`]: value }, phase)
+    const nextVoltage = Vph * (1 + pct / 100)
+    setPhaseVoltageDrafts(prev => ({
+      ...prev,
+      [phase]: fmt(nextVoltage, 1),
+    }))
+    sp(`vUnbal${phase}`, value)
+  }
+
+  function setPhaseVoltageValue(phase, value) {
+    setPhaseVoltageDrafts(prev => ({
+      ...prev,
+      [phase]: value,
+    }))
+    if (!String(value).trim()) {
+      sp(`vUnbal${phase}`, '')
+      return
+    }
+
+    const VL = parseNum(p.VL) || 13800
+    const Vph = VL / Math.sqrt(3)
+    const actual = parseNum(value, 'V')
+    if (!Number.isFinite(actual) || Vph <= 0) return
+    const pct = Math.max(-100, Math.min((actual / Vph - 1) * 100, 100))
+    sp(`vUnbal${phase}`, fmt(pct, 3))
+  }
 
   function addTriLoad() {
     const startId = triNextLoadId(triLoads)
@@ -2024,11 +2297,13 @@ function SubCATri() {
     }
   }, [triCircuit])
 
-  const pLabel = '3F+N'
+  const pLabel = triCircuit.voltageUnbalancePct > 0
+    ? '3F+N · Deseq. V por fase'
+    : '3F+N'
 
   // ── Análise de Cargas mode ────────────────────────────────────────────────
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'220px minmax(0, 1fr) 260px', gap:12, padding:12, flex:'1 1 auto', minHeight:0, width:'100%', maxWidth:'100%', boxSizing:'border-box', overflow:'hidden' }}>
+    <div style={{ display:'grid', gridTemplateColumns:'220px minmax(0, 1fr) 300px', gap:12, padding:12, flex:'1 1 auto', minHeight:0, width:'100%', maxWidth:'100%', boxSizing:'border-box', overflow:'hidden' }}>
 
       {/* LEFT: config */}
       <div className="panel" style={{ display:'flex', flexDirection:'column', minHeight:0 }}>
@@ -2037,7 +2312,48 @@ function SubCATri() {
 
           <Section title="Fonte">
             <PField label="V linha" unit="V" value={p.VL}   onChange={v=>sp('VL',v)}/>
+            <ReadoutField label="V fase" unit="V" value={nominalPhaseVoltageValue} onChange={setNominalPhaseVoltageValue}/>
             <PField label="Freq."   unit="Hz" value={p.freq} onChange={v=>sp('freq',v)}/>
+            <TriPhaseVoltageUnbalanceFields
+              p={p}
+              voltageDrafts={phaseVoltageDrafts}
+              onPercentChange={setPhaseVoltagePercent}
+              onVoltageChange={setPhaseVoltageValue}
+            />
+          </Section>
+
+          <Section title="Wattímetro">
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:5, marginBottom:8 }}>
+              {[['0','Sem'],['1','1W'],['2','2W'],['3','3W']].map(([value, label]) => (
+                <button key={value} className={`btn btn-sm${wattmeter.mode === value ? '' : ' btn-ghost'}`}
+                  style={{ justifyContent:'center', fontSize:10 }}
+                  onClick={()=>sw('mode', value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {wattmeter.mode === '1' && (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:5 }}>
+                {TRI_PHASES.map(phase => (
+                  <button key={phase} className={`btn btn-sm${wattmeter.phase === phase ? '' : ' btn-ghost'}`}
+                    style={{ justifyContent:'center', fontSize:10 }}
+                    onClick={()=>sw('phase', phase)}>
+                    Fase {phase}
+                  </button>
+                ))}
+              </div>
+            )}
+            {wattmeter.mode === '2' && (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:5 }}>
+                {TRI_PHASES.map(phase => (
+                  <button key={phase} className={`btn btn-sm${wattmeter.ref === phase ? '' : ' btn-ghost'}`}
+                    style={{ justifyContent:'center', fontSize:10 }}
+                    onClick={()=>sw('ref', phase)}>
+                    Ref. {phase}
+                  </button>
+                ))}
+              </div>
+            )}
           </Section>
 
           <Section title="Nova carga">
@@ -2046,9 +2362,8 @@ function SubCATri() {
               <TriAbcLoadFields load={loadDraft} onChange={sd} />
             ) : (
               <>
-                <TriSimpleTypePicker value={loadDraft.type} onChange={v=>sd('type', v)} />
                 <PField label="Qtd." unit="" value={loadDraft.qty} onChange={v=>sd('qty', v)} />
-                <LoadParamFields lt={loadDraft.type} prefix="" vals={loadDraft} onChange={sd}/>
+                <LoadParamFields lt="RLC" prefix="" vals={loadDraft} onChange={sd}/>
               </>
             )}
             <button className="btn btn-primary btn-sm" style={{ width:'100%', justifyContent:'center', marginTop:6 }} onClick={addTriLoad}>
@@ -2068,7 +2383,7 @@ function SubCATri() {
         </div>
       </div>
 
-      {/* Center: mounted circuit + phasor diagram */}
+      {/* Center: mounted circuit + continuous charts */}
       <div style={{ display:'flex', flexDirection:'column', gap:12, minHeight:0, minWidth:0, overflow:'hidden' }}>
         <div className="panel" style={{ flex:'1 1 auto', minHeight:300 }}>
           <div className="panel__head">Circuito Montado — {pLabel}</div>
@@ -2077,6 +2392,7 @@ function SubCATri() {
               p={p}
               circuit={triCircuit}
               loads={triLoads}
+              wattmeterReadings={wattmeterReadings}
               selectedLoadId={selectedLoadId}
               onSelectLoad={setSelectedLoadId}
               onUpdateLoad={updateTriLoad}
@@ -2086,43 +2402,73 @@ function SubCATri() {
           </div>
         </div>
 
-        <div className="panel" style={{ flex:'0 0 190px', minHeight:190 }}>
-          <div className="panel__head">Diagrama Fasorial Trifásico — {pLabel}</div>
-          <TriPhasor3F {...phasors} inLabel={pLabel}/>
-        </div>
-
-        <div className="panel" style={{ flex:'0 0 230px', minHeight:230 }}>
-          <div className="panel__head">Gráficos por Carga</div>
+        <div className="panel" style={{ flex:'0 0 260px', minHeight:260 }}>
+          <div className="panel__head">Evolução do FP e Correntes</div>
           <TriLoadCharts data={triCharts} />
         </div>
       </div>
 
-      {/* Right: per-phase results */}
-      <div className="panel" style={{ display:'flex', flexDirection:'column', minHeight:0, minWidth:0 }}>
-        <div className="panel__head">Resultados</div>
-        <div style={{ flex:1, overflow:'auto', padding:'10px 12px' }}>
-          <Section title="Fase-Neutro">
-            {triCircuit.results.map(r=>(
-              <Result key={r.ph} label={`${r.ph}-N`} value={`${fmt(r.I_mag,4)} A · ${fmt(r.P/1000,3)} kW`} highlight={r.FP<0.92&&r.S>0}/>
-            ))}
-          </Section>
-          <Section title="Entre Fases">
-            {triCircuit.branches.map(br => (
-              <Result key={br.target} label={br.target} value={`${fmt(br.I_mag,4)} A · ${fmt(br.P/1000,3)} kW`} highlight={br.FP<0.92&&br.S>0}/>
-            ))}
-          </Section>
-          <Section title="Correntes">
-            <Result label="IA" value={`${fmt(cx.mag(triCircuit.lineCurrents.A),4)} A`}/>
-            <Result label="IB" value={`${fmt(cx.mag(triCircuit.lineCurrents.B),4)} A`}/>
-            <Result label="IC" value={`${fmt(cx.mag(triCircuit.lineCurrents.C),4)} A`}/>
-            <Result label="IN" value={`${fmt(cx.mag(triCircuit.IN),4)} A`} />
-          </Section>
-          <Section title="Total">
-            <Result label="P" value={`${fmt(triCircuit.P_tot/1000,3)} kW`}/>
-            <Result label="Q" value={`${fmt(triCircuit.Q_tot/1000,3)} kvar`}/>
-            <Result label="S" value={`${fmt(triCircuit.S_tot/1000,3)} kVA`}/>
-            <Result label="FP" value={fmt(triCircuit.FP_tot,4)} highlight={triCircuit.FP_tot<0.92&&triCircuit.S_tot>0}/>
-          </Section>
+      {/* Right: phasor diagram + per-phase results */}
+      <div style={{ display:'flex', flexDirection:'column', gap:12, minHeight:0, minWidth:0 }}>
+        <div className="panel" style={{ flex:'0 0 230px', minHeight:230 }}>
+          <div className="panel__head">Diagrama Fasorial — {pLabel}</div>
+          <TriPhasor3F {...phasors} inLabel={pLabel}/>
+        </div>
+
+        <div className="panel" style={{ display:'flex', flexDirection:'column', flex:'1 1 auto', minHeight:0, minWidth:0 }}>
+          <div className="panel__head">Resultados</div>
+          <div style={{ flex:1, overflow:'auto', padding:'10px 12px' }}>
+            <Section title="Fase-Neutro">
+              {triCircuit.results.map(r=>(
+                <Result key={r.ph} label={`${r.ph}-N · ${fmt(cx.mag(r.V),0)} V`} value={`${fmt(r.I_mag,4)} A · ${fmt(r.P/1000,3)} kW`} highlight={r.FP<0.92&&r.S>0}/>
+              ))}
+            </Section>
+            <Section title="Entre Fases">
+              {triCircuit.branches.map(br => (
+                <Result key={br.target} label={`${br.target} · ${fmt(cx.mag(br.V),0)} V`} value={`${fmt(br.I_mag,4)} A · ${fmt(br.P/1000,3)} kW`} highlight={br.FP<0.92&&br.S>0}/>
+              ))}
+            </Section>
+            <Section title="Correntes">
+              <Result label="IA" value={`${fmt(cx.mag(triCircuit.lineCurrents.A),4)} A`}/>
+              <Result label="IB" value={`${fmt(cx.mag(triCircuit.lineCurrents.B),4)} A`}/>
+              <Result label="IC" value={`${fmt(cx.mag(triCircuit.lineCurrents.C),4)} A`}/>
+              <Result label="IN" value={`${fmt(cx.mag(triCircuit.IN),4)} A`} />
+            </Section>
+            {wattmeterReadings.readings.length > 0 && (
+              <Section title={wattmeter.mode === '2' ? 'Aron (3 fios)' : 'Wattímetros'}>
+                {wattmeterReadings.readings.map(item => (
+                  <Result
+                    key={item.id}
+                    label={`${item.id} · V${item.voltageLabel} · I${item.phase}`}
+                    value={`${fmt(item.P/1000,4)} kW`}
+                  />
+                ))}
+                <Result
+                  label={wattmeter.mode === '1' ? 'Leitura' : wattmeter.mode === '2' ? 'P Aron' : 'Soma dos W'}
+                  value={`${fmt(wattmeterReadings.total/1000,4)} kW`}
+                  highlight={wattmeter.mode === '2' && !wattmeterReadings.aronApplicable}
+                />
+                {wattmeter.mode !== '1' && wattmeterReadings.aronApplicable && (
+                  <Result
+                    label="Dif. vs total"
+                    value={`${fmt(wattmeterReadings.error/1000,4)} kW`}
+                    highlight={Math.abs(wattmeterReadings.error) > Math.max(1, Math.abs(triCircuit.P_tot) * 0.001)}
+                  />
+                )}
+                {wattmeter.mode === '2' && !wattmeterReadings.aronApplicable && (
+                  <div style={{ fontSize:10.5, lineHeight:1.45, color:'var(--c-danger)', marginTop:4 }}>
+                    IN = {fmt(wattmeterReadings.neutral,4)} A: Aron mede total apenas em 3 fios.
+                  </div>
+                )}
+              </Section>
+            )}
+            <Section title="Total">
+              <Result label="P" value={`${fmt(triCircuit.P_tot/1000,3)} kW`}/>
+              <Result label="Q" value={`${fmt(triCircuit.Q_tot/1000,3)} kvar`}/>
+              <Result label="S" value={`${fmt(triCircuit.S_tot/1000,3)} kVA`}/>
+              <Result label="FP" value={fmt(triCircuit.FP_tot,4)} highlight={triCircuit.FP_tot<0.92&&triCircuit.S_tot>0}/>
+            </Section>
+          </div>
         </div>
       </div>
     </div>

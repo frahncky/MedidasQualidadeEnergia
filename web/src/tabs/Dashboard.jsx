@@ -3,7 +3,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine
 } from 'recharts'
-import { demoEvents, SEV_CLASS } from '../utils/powerQuality'
+import { SEV_CLASS } from '../utils/powerQuality'
 import { useAppContext } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 
@@ -41,43 +41,91 @@ const INST_INFO_MAP = {
   ],
 }
 
-function buildSeries(period) {
+function fmt(value, digits = 2) {
+  return Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : '-'
+}
+
+function fmtEnergy(kWh) {
+  return Math.abs(kWh) >= 1000 ? `${fmt(kWh / 1000, 2)} MWh` : `${fmt(kWh, 0)} kWh`
+}
+
+function fmtPower(kW) {
+  return Math.abs(kW) >= 1000 ? `${fmt(kW / 1000, 3)} MW` : `${fmt(kW, 0)} kW`
+}
+
+function bucket(values, count) {
+  const size = Math.max(1, Math.ceil(values.length / count))
+  return Array.from({ length: count }, (_, index) => values.slice(index * size, (index + 1) * size)).filter(group => group.length)
+}
+
+function avg(values) {
+  const clean = values.filter(Number.isFinite)
+  return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : 0
+}
+
+function shapedDemand(baseDemand, index, count) {
+  const dailyShape = count === 24 ? (index > 7 && index < 20 ? 1.16 : 0.68) : 1
+  return baseDemand * dailyShape * (0.94 + 0.08 * Math.sin(index * 0.7))
+}
+
+function buildSeries(period, analysis) {
+  const source = analysis.rmsSeries ?? []
+  const baseDemand = Math.max(1, analysis.power?.pKw || 1)
+
   if (period === 'Dia') {
-    return Array.from({ length: 24 }, (_, i) => ({
+    const groups = bucket(source, 24)
+    return Array.from({ length: 24 }, (_, i) => {
+      const group = groups[i] ?? []
+      const demand = avg(group.map(row => row.pKw).filter(value => Math.abs(value) > 0.001)) || shapedDemand(baseDemand, i, 24)
+      return {
       label: `${String(i).padStart(2, '0')}h`,
-      energy: +(160 + Math.sin((i - 8) / 3) * 90 + (i > 7 && i < 20 ? 200 : 0) + Math.random() * 20).toFixed(0),
-      demand: +(800 + Math.sin((i - 8) / 4) * 600 + (i > 7 && i < 20 ? 400 : 0) + Math.random() * 80).toFixed(0),
-      fp: +(0.88 + Math.random() * 0.08).toFixed(3),
-    }))
+      energy: +(demand * 1).toFixed(0),
+      demand: +demand.toFixed(0),
+      fp: +(avg(group.map(row => row.fp)) || analysis.summary.fpAvg).toFixed(3),
+    }})
   }
   if (period === 'Semana') {
-    return ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d, i) => ({
-      label: d,
-      energy: +(3500 + Math.sin(i * 0.8) * 500 + (i < 5 ? 800 : -400) + Math.random() * 200).toFixed(0),
-      demand: +(1500 + Math.sin(i * 0.6) * 200 + Math.random() * 100).toFixed(0),
-      fp: +(0.88 + Math.random() * 0.08).toFixed(3),
-    }))
+    const groups = bucket(source, 7)
+    return ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d, i) => {
+      const group = groups[i] ?? []
+      const demand = avg(group.map(row => row.pKw).filter(value => Math.abs(value) > 0.001)) || shapedDemand(baseDemand, i, 7)
+      return {
+        label: d,
+        energy: +(demand * 24).toFixed(0),
+        demand: +demand.toFixed(0),
+        fp: +(avg(group.map(row => row.fp)) || analysis.summary.fpAvg).toFixed(3),
+      }
+    })
   }
+  const groups = bucket(source, 31)
   return Array.from({ length: 31 }, (_, i) => {
     const d = new Date(2024, 4, i + 1)
     const label = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+    const group = groups[i] ?? []
+    const demand = avg(group.map(row => row.pKw).filter(value => Math.abs(value) > 0.001)) || shapedDemand(baseDemand, i, 31)
     return {
       label,
-      energy: +(3800 + Math.sin(i * 0.4) * 500 + Math.random() * 300).toFixed(0),
-      demand: +(1600 + Math.sin(i * 0.3) * 180 + Math.random() * 120).toFixed(0),
-      fp: +(0.88 + Math.random() * 0.08).toFixed(3),
+      energy: +(demand * 24).toFixed(0),
+      demand: +demand.toFixed(0),
+      fp: +(avg(group.map(row => row.fp)) || analysis.summary.fpAvg).toFixed(3),
     }
   })
 }
 
-function buildKPI(installation) {
-  const base = {
-    'Subestação Principal': { energy: '125,43 MWh', reactive: '34,18 MVArh', demand: '1,786 MW', fp: '0,92 ind.', thdv: '2,34 %', thdi: '6,87 %', events: '23', cost: 'R$ 86.742' },
-    'Laboratório LQE':      { energy: '12,81 MWh',  reactive: '3,42 MVArh',  demand: '185 kW',   fp: '0,94 ind.', thdv: '1,92 %', thdi: '4,15 %', events: '5',  cost: 'R$ 7.843' },
-    'Fábrica Norte':        { energy: '98,72 MWh',  reactive: '28,14 MVArh', demand: '1,420 MW', fp: '0,91 ind.', thdv: '3,11 %', thdi: '8,42 %', events: '31', cost: 'R$ 64.521' },
-    'Almoxarifado':         { energy: '8,34 MWh',   reactive: '2,18 MVArh',  demand: '120 kW',   fp: '0,96 ind.', thdv: '1,44 %', thdi: '3,28 %', events: '2',  cost: 'R$ 5.104' },
+function buildKPI(analysis) {
+  const monthlyEnergy = Math.max(0, analysis.power.pKw * 24 * 31)
+  const monthlyReactive = Math.max(0, Math.abs(analysis.power.qKvar) * 24 * 31)
+  const cost = monthlyEnergy * 0.69
+  const d = {
+    energy: fmtEnergy(monthlyEnergy),
+    reactive: Math.abs(monthlyReactive) >= 1000 ? `${fmt(monthlyReactive / 1000, 2)} MVArh` : `${fmt(monthlyReactive, 0)} kVArh`,
+    demand: fmtPower(analysis.power.sKva),
+    fp: `${fmt(analysis.summary.fpAvg, 3)} ind.`,
+    thdv: `${fmt(analysis.summary.thdVAvg, 2)} %`,
+    thdi: `${fmt(analysis.summary.thdIAvg, 2)} %`,
+    events: String(analysis.events.length),
+    cost: `R$ ${cost.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`,
   }
-  const d = base[installation] ?? base['Subestação Principal']
   return [
     { name: 'Energia Ativa',   value: d.energy,  delta: '+8,7%',  color: '#16a34a', bg: '#dcfce7', icon: '⚡' },
     { name: 'Energia Reativa', value: d.reactive, delta: '+6,1%',  color: '#9333ea', bg: '#f3e8ff', icon: 'φ' },
@@ -90,28 +138,25 @@ function buildKPI(installation) {
   ]
 }
 
-const HARMONIC_DATA = [1, 3, 5, 7, 9, 11, 13].map(n => ({
-  order: `${n}ª`,
-  mag: n === 1 ? 100 : +(8 / Math.pow(n, 1.2)).toFixed(2),
-  limit: +(5 / Math.sqrt(n)).toFixed(2),
-}))
-
 export default function Dashboard({ onNavigate }) {
-  const { installation, setInstallation, period, setPeriod } = useAppContext()
+  const { installation, setInstallation, period, setPeriod, pqAnalysis } = useAppContext()
   const toast = useToast()
   const [loadType, setLoadType] = useState('Todas')
   const [loading, setLoading] = useState(false)
   const [seed, setSeed] = useState(0)
 
-  const series = useMemo(() => buildSeries(period), [period, seed])
-  const kpi = useMemo(() => buildKPI(installation), [installation, seed])
+  const series = useMemo(() => buildSeries(period, pqAnalysis), [period, seed, pqAnalysis])
+  const kpi = useMemo(() => buildKPI(pqAnalysis), [pqAnalysis])
   const instInfo = INST_INFO_MAP[installation] ?? INST_INFO_MAP['Subestação Principal']
-  const events = useMemo(() => demoEvents(), [])
+  const events = useMemo(() => pqAnalysis.events.slice(0, 8), [pqAnalysis.events])
+  const harmonicData = useMemo(() => (pqAnalysis.phases['Fase A']?.harmonics ?? [])
+    .filter(h => h.order <= 13)
+    .map(h => ({ order: `${h.order}ª`, mag: h.percent ?? 0, limit: h.limitPct })), [pqAnalysis])
 
   const STATUS = [
     { label: 'Aquisição de Dados', val: 'Online',           color: '#16a34a' },
     { label: 'Sincronismo de Tempo', val: 'OK',             color: '#16a34a' },
-    { label: 'Qualidade dos Dados', val: '98,7%',           color: '#1d4ed8' },
+    { label: 'Qualidade dos Dados', val: `${fmt(pqAnalysis.conformity.score, 1)}%`, color: '#1d4ed8' },
     { label: 'Última Atualização', val: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }), color: '#64748b' },
   ]
 
@@ -202,7 +247,7 @@ export default function Dashboard({ onNavigate }) {
             <div className="panel__head">Espectro Harmônico de Tensão (Fase A)</div>
             <div style={{ height: 'calc(100% - 38px)', padding: 8 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={HARMONIC_DATA} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <BarChart data={harmonicData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="order" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} />
@@ -308,11 +353,11 @@ export default function Dashboard({ onNavigate }) {
                 <thead><tr><th>Param.</th><th>A</th><th>B</th><th>C</th></tr></thead>
                 <tbody>
                   {[
-                    ['V RMS (V)', '220,1', '218,9', '221,4'],
-                    ['I RMS (A)', '125,3', '122,8', '127,5'],
-                    ['FP', '0,93', '0,91', '0,92'],
-                    ['THD-V (%)', '2,34', '2,41', '2,28'],
-                    ['THD-I (%)', '6,87', '7,12', '6,61'],
+                    ['V RMS (V)', fmt(pqAnalysis.phases['Fase A'].vrms, 1), fmt(pqAnalysis.phases['Fase B'].vrms, 1), fmt(pqAnalysis.phases['Fase C'].vrms, 1)],
+                    ['I RMS (A)', fmt(pqAnalysis.phases['Fase A'].irms, 1), fmt(pqAnalysis.phases['Fase B'].irms, 1), fmt(pqAnalysis.phases['Fase C'].irms, 1)],
+                    ['FP', fmt(pqAnalysis.summary.fpAvg, 3), fmt(pqAnalysis.summary.fpAvg, 3), fmt(pqAnalysis.summary.fpAvg, 3)],
+                    ['THD-V (%)', fmt(pqAnalysis.phases['Fase A'].thdV, 2), fmt(pqAnalysis.phases['Fase B'].thdV, 2), fmt(pqAnalysis.phases['Fase C'].thdV, 2)],
+                    ['THD-I (%)', fmt(pqAnalysis.phases['Fase A'].thdI, 2), fmt(pqAnalysis.phases['Fase B'].thdI, 2), fmt(pqAnalysis.phases['Fase C'].thdI, 2)],
                   ].map(row => (
                     <tr key={row[0]}>
                       {row.map((c, i) => <td key={i} style={i === 0 ? { fontWeight: 600, color: 'var(--c-text-muted)' } : {}}>{c}</td>)}

@@ -1,15 +1,22 @@
-import { useState, useMemo } from 'react'
-import { DEMO_PHASORS, phasorToXY, symmetricalComponents } from '../utils/phasorCalc'
+import { useEffect, useMemo, useState } from 'react'
+import { DEMO_PHASORS, symmetricalComponents } from '../utils/phasorCalc'
+import { useAppContext } from '../context/AppContext'
 
 const COLORS = { Va:'#1d4ed8', Vb:'#16a34a', Vc:'#dc2626', Ia:'#7c3aed', Ib:'#0284c7', Ic:'#d97706' }
 
 export default function Fasores() {
-  const [ph, setPh] = useState(DEMO_PHASORS)
+  const { pqAnalysis } = useAppContext()
+  const analysisPhasors = pqAnalysis?.phasors ?? DEMO_PHASORS
+  const [ph, setPh] = useState(analysisPhasors)
   const [frozen, setFrozen] = useState(false)
   const [window_, setWindow] = useState('10 ciclos')
   const [sistema, setSistema] = useState('Trifásico 3F+N')
   const [metodo, setMetodo] = useState('FFT (Hann)')
   const [freq, setFreq] = useState('60,00 Hz')
+
+  useEffect(() => {
+    if (!frozen) setPh(analysisPhasors)
+  }, [analysisPhasors, frozen])
 
   const sc = useMemo(() =>
     symmetricalComponents(ph.Va.mag, ph.Vb.mag, ph.Vc.mag, ph.Va.ang, ph.Vb.ang, ph.Vc.ang),
@@ -23,6 +30,24 @@ export default function Fasores() {
     { key:'Ib', label:'Ib', mag:ph.Ib.mag, ang:ph.Ib.ang, color:COLORS.Ib },
     { key:'Ic', label:'Ic', mag:ph.Ic.mag, ang:ph.Ic.ang, color:COLORS.Ic },
   ]
+  const scI = useMemo(() =>
+    symmetricalComponents(ph.Ia.mag, ph.Ib.mag, ph.Ic.mag, ph.Ia.ang, ph.Ib.ang, ph.Ic.ang),
+    [ph])
+  const power = pqAnalysis?.power ?? { pKw: 28.56, qKvar: 13.42, sKva: 31.59, fp: 0.904, distortionKva: 4.82, displacementFp: 0.884 }
+  const phaseData = pqAnalysis?.phases ?? {}
+  const nominalDelta = {
+    Va: 0,
+    Vb: -120,
+    Vc: 120,
+    Ia: ph.Ia.ang,
+    Ib: ph.Ia.ang - 120,
+    Ic: ph.Ia.ang + 120,
+  }
+  const angleDelta = key => {
+    const delta = ph[key].ang - nominalDelta[key]
+    const normalized = ((delta + 180) % 360 + 360) % 360 - 180
+    return `${normalized >= 0 ? '+' : ''}${normalized.toFixed(1)}°`
+  }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', minHeight:1080, overflow:'visible' }}>
@@ -77,7 +102,7 @@ export default function Fasores() {
                     <div style={{ fontSize:10, color:'#64748b' }}>VUF (%)</div>
                   </div>
                   <div style={{ textAlign:'center' }}>
-                    <div style={{ fontSize:20, fontWeight:800, color:'#ea580c' }}>1,94%</div>
+                    <div style={{ fontSize:20, fontWeight:800, color:scI.VUF>8?'#dc2626':'#ea580c' }}>{scI.VUF.toFixed(2)}%</div>
                     <div style={{ fontSize:10, color:'#64748b' }}>IUF (%)</div>
                   </div>
                 </div>
@@ -108,12 +133,12 @@ export default function Fasores() {
             <div className="panel__body">
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
                 {[
-                  ['P Ativa','28,56 kW','#16a34a'],
-                  ['Q Reativa','13,42 kVAr','#9333ea'],
-                  ['S Aparente','31,59 kVA','#1d4ed8'],
-                  ['FP','0,904 ind.','#ea580c'],
-                  ['D Distorção','4,82 kVA','#d97706'],
-                  ['FPD','0,884','#0284c7'],
+                  ['P Ativa',`${power.pKw.toFixed(2).replace('.', ',')} kW`,'#16a34a'],
+                  ['Q Reativa',`${power.qKvar.toFixed(2).replace('.', ',')} kVAr`,'#9333ea'],
+                  ['S Aparente',`${power.sKva.toFixed(2).replace('.', ',')} kVA`,'#1d4ed8'],
+                  ['FP',`${power.fp.toFixed(3).replace('.', ',')} ind.`,'#ea580c'],
+                  ['D Distorção',`${power.distortionKva.toFixed(2).replace('.', ',')} kVA`,'#d97706'],
+                  ['FPD',power.displacementFp.toFixed(3).replace('.', ','),'#0284c7'],
                 ].map(([n,v,c])=>(
                   <div key={n} style={{ background:'#f8fafc', borderRadius:6, padding:'8px 10px', border:'1px solid #e2e8f0' }}>
                     <div style={{ fontSize:10, color:'#64748b', fontWeight:600 }}>{n}</div>
@@ -136,7 +161,7 @@ export default function Fasores() {
                       <td style={{fontWeight:700}}>{p.mag.toFixed(1)}</td>
                       <td>{p.ang.toFixed(1)}°</td>
                       <td style={{color:'#64748b'}}>{p.key.startsWith('V') ? 'V' : 'A'}</td>
-                      <td style={{color:'#16a34a', fontSize:11}}>+0,{Math.floor(Math.random()*9+1)}°</td>
+                      <td style={{color:Math.abs(parseFloat(angleDelta(p.key))) > 5 ? '#d97706' : '#16a34a', fontSize:11}}>{angleDelta(p.key)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -152,10 +177,10 @@ export default function Fasores() {
             <table className="tbl">
               <thead><tr><th>Fase</th><th>RMS (V)</th><th>Pico (V)</th><th>THD (%)</th></tr></thead>
               <tbody>
-                {[['A',ph.Va.mag,'#1d4ed8'],['B',ph.Vb.mag,'#16a34a'],['C',ph.Vc.mag,'#dc2626']].map(([f,v,c])=>(
+                {[['A',ph.Va.mag,'#1d4ed8',phaseData['Fase A']?.thdV],['B',ph.Vb.mag,'#16a34a',phaseData['Fase B']?.thdV],['C',ph.Vc.mag,'#dc2626',phaseData['Fase C']?.thdV]].map(([f,v,c,thd])=>(
                   <tr key={f}><td><span style={{color:c,fontWeight:700}}>■</span> Fase {f}</td>
                   <td style={{fontWeight:700,color:c}}>{v.toFixed(1)}</td>
-                  <td>{(v*Math.SQRT2).toFixed(1)}</td><td>2,{30+Math.floor(Math.random()*20)}</td></tr>
+                  <td>{(v*Math.SQRT2).toFixed(1)}</td><td>{Number.isFinite(thd) ? thd.toFixed(2).replace('.', ',') : '-'}</td></tr>
                 ))}
                 <tr style={{background:'#f8fafc'}}>
                   <td style={{fontWeight:700}}>VLL</td>
@@ -171,13 +196,13 @@ export default function Fasores() {
             <table className="tbl">
               <thead><tr><th>Fase</th><th>RMS (A)</th><th>Pico (A)</th><th>THD (%)</th></tr></thead>
               <tbody>
-                {[['A',ph.Ia.mag,'#7c3aed'],['B',ph.Ib.mag,'#0284c7'],['C',ph.Ic.mag,'#d97706']].map(([f,v,c])=>(
+                {[['A',ph.Ia.mag,'#7c3aed',phaseData['Fase A']?.thdI],['B',ph.Ib.mag,'#0284c7',phaseData['Fase B']?.thdI],['C',ph.Ic.mag,'#d97706',phaseData['Fase C']?.thdI]].map(([f,v,c,thd])=>(
                   <tr key={f}><td><span style={{color:c,fontWeight:700}}>■</span> Fase {f}</td>
                   <td style={{fontWeight:700,color:c}}>{v.toFixed(1)}</td>
-                  <td>{(v*Math.SQRT2).toFixed(1)}</td><td>6,{70+Math.floor(Math.random()*30)}</td></tr>
+                  <td>{(v*Math.SQRT2).toFixed(1)}</td><td>{Number.isFinite(thd) ? thd.toFixed(2).replace('.', ',') : '-'}</td></tr>
                 ))}
                 <tr style={{background:'#f8fafc'}}><td style={{fontWeight:700}}>Neutro In</td>
-                  <td style={{fontWeight:700}}>8,4</td><td>11,9</td><td>—</td></tr>
+                  <td style={{fontWeight:700}}>{scI.V0.mag.toFixed(1)}</td><td>{(scI.V0.mag*Math.SQRT2).toFixed(1)}</td><td>—</td></tr>
               </tbody>
             </table>
           </div>
