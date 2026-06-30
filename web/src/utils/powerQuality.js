@@ -1,11 +1,15 @@
 /** Power quality indices and analysis helpers */
 
 const HARMONIC_ORDERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19, 21, 23, 25]
+const INTERHARMONIC_ORDERS = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 15.5, 17.5, 19.5, 21.5, 23.5, 24.5]
 const PHASES = ['A', 'B', 'C']
 const DEFAULT_FREQ = 60
 const DEFAULT_LIMITS = {
   thdV: 5,
   thdI: 8,
+  interharmonicV: 2,
+  interharmonicI: 5,
+  transientPu: 1.65,
   unbalance: 2,
   pst: 1,
   fp: 0.92,
@@ -68,6 +72,13 @@ function std(values) {
   return Math.sqrt(clean.reduce((sum, value) => sum + (value - avg) ** 2, 0) / (clean.length - 1))
 }
 
+function mad(values) {
+  const clean = values.filter(Number.isFinite)
+  if (!clean.length) return 0
+  const center = median(clean)
+  return median(clean.map(value => Math.abs(value - center)))
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -103,6 +114,7 @@ function parseNumber(value) {
 function parseTimestamp(value, index = 0, sampleRate = 3840) {
   if (value instanceof Date) return value.getTime()
   if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value > 1e11) return value
     if (value > 10000) {
       const excelEpoch = Date.UTC(1899, 11, 30)
       return excelEpoch + value * 24 * 60 * 60 * 1000
@@ -237,6 +249,26 @@ function harmonicSpectrum(values, timestamps, frequency, kind = 'voltage') {
     ...h,
     percent: fundamental > 0 ? toFixedNumber((h.magnitude / fundamental) * 100, 3) : 0,
   }))
+}
+
+function interharmonicSpectrum(values, timestamps, frequency, kind = 'voltage') {
+  if (!isInstantaneous(values)) return []
+  const fundamental = projection(values, timestamps, frequency, 1).magnitude || 0
+  return INTERHARMONIC_ORDERS.map(order => {
+    const h = projection(values, timestamps, frequency, order)
+    return {
+      order,
+      label: `${order.toFixed(1)}ª`,
+      magnitude: toFixedNumber(h.magnitude, 5),
+      angle: toFixedNumber(h.angle, 2),
+      percent: fundamental > 0 ? toFixedNumber((h.magnitude / fundamental) * 100, 3) : 0,
+      limitPct: kind === 'current' ? DEFAULT_LIMITS.interharmonicI : DEFAULT_LIMITS.interharmonicV,
+    }
+  }).sort((a, b) => b.percent - a.percent)
+}
+
+function maxSpectrumPct(spectrum) {
+  return spectrum.reduce((max, item) => Math.max(max, item.percent ?? 0), 0)
 }
 
 function fallbackHarmonics(thdPct, fundamental, kind = 'voltage') {
@@ -386,6 +418,87 @@ function detectVoltageEvents(rmsSeries, nominalVoltage) {
   }))
 }
 
+function detectTransientEvents(rows, nominalVoltage) {
+  if (!rows.length || nominalVoltage <= 0) return []
+  const events = []
+  const nominalPeak = nominalVoltage * Math.SQRT2
+  const phases = [
+    ['A', 'va'],
+    ['B', 'vb'],
+    ['C', 'vc'],
+  ]
+
+  phases.forEach(([phase, key]) => {
+    const values = rows.map(row => row[key]).filter(Number.isFinite)
+    if (!isInstantaneous(values)) return
+
+    const steps = []
+    for (let i = 1; i < rows.length; i += 1) {
+      const current = rows[i][key]
+      const previous = rows[i - 1][key]
+      if (Number.isFinite(current) && Number.isFinite(previous)) {
+        steps.push(Math.abs(current - previous) / nominalPeak)
+      }
+    }
+    const baselineStep = median(steps)
+    const noiseStep = mad(steps) * 1.4826
+    const stepLimit = Math.max(0.42, baselineStep + noiseStep * 8)
+
+    let active = null
+    for (let i = 1; i < rows.length; i += 1) {
+      const current = rows[i][key]
+      const previous = rows[i - 1][key]
+      if (!Number.isFinite(current) || !Number.isFinite(previous)) continue
+
+      const peakPu = Math.abs(current) / nominalPeak
+      const stepPu = Math.abs(current - previous) / nominalPeak
+      const detected = peakPu > DEFAULT_LIMITS.transientPu || stepPu > stepLimit
+
+      if (!detected) {
+        if (active) {
+          events.push(active)
+          active = null
+        }
+        continue
+      }
+
+      if (!active) {
+        active = {
+          ts: formatEventTime(rows[i].timestamp),
+          start: rows[i].timestamp,
+          end: rows[i].timestamp,
+          tipo: 'Transitório',
+          fase: phase,
+          peakPu,
+          stepPu,
+        }
+      } else {
+        active.end = rows[i].timestamp
+        active.peakPu = Math.max(active.peakPu, peakPu)
+        active.stepPu = Math.max(active.stepPu, stepPu)
+      }
+    }
+    if (active) events.push(active)
+  })
+
+  return events.map(event => {
+    const peak = event.peakPu.toFixed(2).replace('.', ',')
+    const step = event.stepPu.toFixed(2).replace('.', ',')
+    return {
+      ts: event.ts,
+      tipo: event.tipo,
+      desc: `Pico ${peak} pu, salto ${step} pu`,
+      sev: event.peakPu > 2.2 || event.stepPu > 1.2 ? 'Crítico' : 'Alto',
+      fase: event.fase,
+      dur: formatDuration(Math.max(1, event.end - event.start)),
+      start: event.start,
+      end: event.end,
+      peakPu: event.peakPu,
+      stepPu: event.stepPu,
+    }
+  })
+}
+
 function eventSummary(events) {
   const summary = {}
   events.forEach(event => {
@@ -426,6 +539,26 @@ function addIndexEvents(events, analysis) {
       dur: '-',
     })
   }
+  if (analysis.interharmonicVMax > DEFAULT_LIMITS.interharmonicV) {
+    indexed.push({
+      ts: formatEventTime(analysis.lastTimestamp),
+      tipo: 'Inter-harmônicas',
+      desc: `Vih máx. ${analysis.interharmonicVMax.toFixed(2).replace('.', ',')}%`,
+      sev: analysis.interharmonicVMax > 4 ? 'Alto' : 'Médio',
+      fase: 'ABC',
+      dur: '-',
+    })
+  }
+  if (analysis.interharmonicIMax > DEFAULT_LIMITS.interharmonicI) {
+    indexed.push({
+      ts: formatEventTime(analysis.lastTimestamp),
+      tipo: 'Inter-harmônicas',
+      desc: `Iih máx. ${analysis.interharmonicIMax.toFixed(2).replace('.', ',')}%`,
+      sev: analysis.interharmonicIMax > 8 ? 'Alto' : 'Médio',
+      fase: 'ABC',
+      dur: '-',
+    })
+  }
   if (analysis.pst95 > DEFAULT_LIMITS.pst) {
     indexed.push({
       ts: formatEventTime(analysis.lastTimestamp),
@@ -454,6 +587,9 @@ function complianceChecks(summary) {
     { name: 'Tensão RMS', value: summary.voltageCompliancePct, limit: '90-110% Vnom', ok: summary.voltageCompliancePct >= 95 },
     { name: 'THD-V', value: summary.thdVAvg, limit: `<= ${DEFAULT_LIMITS.thdV}%`, ok: summary.thdVAvg <= DEFAULT_LIMITS.thdV },
     { name: 'THD-I', value: summary.thdIAvg, limit: `<= ${DEFAULT_LIMITS.thdI}%`, ok: summary.thdIAvg <= DEFAULT_LIMITS.thdI },
+    { name: 'Inter-harmônicas V', value: summary.interharmonicVMax, limit: `<= ${DEFAULT_LIMITS.interharmonicV}%`, ok: summary.interharmonicVMax <= DEFAULT_LIMITS.interharmonicV },
+    { name: 'Inter-harmônicas I', value: summary.interharmonicIMax, limit: `<= ${DEFAULT_LIMITS.interharmonicI}%`, ok: summary.interharmonicIMax <= DEFAULT_LIMITS.interharmonicI },
+    { name: 'Transitórios', value: summary.transientCount, limit: '0 eventos', ok: summary.transientCount === 0 },
     { name: 'Desequilíbrio', value: summary.unbalance, limit: `<= ${DEFAULT_LIMITS.unbalance}%`, ok: summary.unbalance <= DEFAULT_LIMITS.unbalance },
     { name: 'Flicker Pst95', value: summary.pst95, limit: `<= ${DEFAULT_LIMITS.pst}`, ok: summary.pst95 <= DEFAULT_LIMITS.pst },
     { name: 'Frequência', value: summary.freqAvg, limit: `${DEFAULT_LIMITS.freqMin}-${DEFAULT_LIMITS.freqMax} Hz`, ok: summary.freqAvg >= DEFAULT_LIMITS.freqMin && summary.freqAvg <= DEFAULT_LIMITS.freqMax },
@@ -532,11 +668,58 @@ function buildPower(rows, phasors, summary) {
   }
 }
 
+function buildMeasurementProfile(rows, sampleRate, frequency, nominalVoltage, rmsSeries) {
+  const cycles = 10
+  const windowMs = cycles * 1000 / (frequency || DEFAULT_FREQ)
+  const samplesPerWindow = Math.max(1, Math.round(sampleRate * cycles / (frequency || DEFAULT_FREQ)))
+  const windows = []
+  for (let i = 0; i < rows.length; i += samplesPerWindow) {
+    const slice = rows.slice(i, i + samplesPerWindow)
+    if (slice.length < Math.max(8, samplesPerWindow * 0.6)) continue
+    const Va = bucketChannel(slice, 'va')
+    const Vb = bucketChannel(slice, 'vb')
+    const Vc = bucketChannel(slice, 'vc')
+    windows.push({
+      label: formatDateLabel(slice[0].timestamp, windows.length),
+      timestamp: slice[0].timestamp,
+      Va: toFixedNumber(Va, 3),
+      Vb: toFixedNumber(Vb, 3),
+      Vc: toFixedNumber(Vc, 3),
+      Vavg: toFixedNumber(mean([Va, Vb, Vc].filter(value => value > 0)), 3),
+    })
+  }
+
+  const freqOk = rmsSeries.length
+    ? 100 * rmsSeries.filter(point => point.freq >= DEFAULT_LIMITS.freqMin && point.freq <= DEFAULT_LIMITS.freqMax).length / rmsSeries.length
+    : 100
+  const hasWaveform = PHASES.every(phase => isInstantaneous(rows.map(row => row[`v${phase.toLowerCase()}`]).filter(Number.isFinite)))
+  const hasThreePhaseVoltage = PHASES.every(phase => rows.some(row => Number.isFinite(row[`v${phase.toLowerCase()}`])))
+  const classAReady = sampleRate >= DEFAULT_FREQ * 64 * 0.98 && hasWaveform && hasThreePhaseVoltage
+
+  return {
+    method: 'IEC 61000-4-30 aproximado',
+    measurementClass: classAReady ? 'Classe A aproximada' : 'Classe S/dados agregados',
+    windowCycles: cycles,
+    windowMs: toFixedNumber(windowMs, 2),
+    samplesPerWindow,
+    sampleRate: toFixedNumber(sampleRate, 2),
+    frequencyCompliancePct: toFixedNumber(freqOk, 1),
+    voltageWindowMin: toFixedNumber(Math.min(...windows.map(window => window.Vavg), nominalVoltage), 3),
+    voltageWindowMax: toFixedNumber(Math.max(...windows.map(window => window.Vavg), nominalVoltage), 3),
+    hasWaveform,
+    hasThreePhaseVoltage,
+    classAReady,
+    windows: windows.slice(0, 96),
+  }
+}
+
 function buildPhaseResult(phase, voltageValues, currentValues, timestamps, frequency, fallbackThdV, fallbackThdI) {
   const vRms = channelRms(voltageValues)
   const iRms = channelRms(currentValues)
   const vHarmonics = harmonicSpectrum(voltageValues, timestamps, frequency, 'voltage') ?? fallbackHarmonics(fallbackThdV, vRms || 1, 'voltage')
   const iHarmonics = harmonicSpectrum(currentValues, timestamps, frequency, 'current') ?? fallbackHarmonics(fallbackThdI, iRms || 1, 'current')
+  const interharmonics = interharmonicSpectrum(voltageValues, timestamps, frequency, 'voltage')
+  const currentInterharmonics = interharmonicSpectrum(currentValues, timestamps, frequency, 'current')
   return {
     phase,
     vrms: toFixedNumber(vRms, 3),
@@ -545,6 +728,10 @@ function buildPhaseResult(phase, voltageValues, currentValues, timestamps, frequ
     thdI: toFixedNumber(calcTHD(iHarmonics), 3),
     harmonics: vHarmonics,
     currentHarmonics: iHarmonics,
+    interharmonics,
+    currentInterharmonics,
+    interharmonicVMax: toFixedNumber(maxSpectrumPct(interharmonics), 3),
+    interharmonicIMax: toFixedNumber(maxSpectrumPct(currentInterharmonics), 3),
     waveformBased: isInstantaneous(voltageValues),
   }
 }
@@ -562,18 +749,19 @@ function buildDefaultRows() {
     const timestamp = base + t * 1000
     const sagB = t > 0.7 && t < 0.96 ? 0.64 : 1
     const swellA = t > 1.28 && t < 1.36 ? 1.16 : 1
+    const transientA = Math.exp(-(((t - 1.55) / 0.0007) ** 2)) * vRms * Math.SQRT2 * 1.1
     const flicker = 1 + 0.006 * Math.sin(2 * Math.PI * 8.8 * t)
     const angle = 2 * Math.PI * DEFAULT_FREQ * t
     const harmonic = theta => 0.028 * Math.sin(5 * theta + 0.2) + 0.019 * Math.sin(7 * theta - 0.5) + 0.008 * Math.sin(11 * theta)
     const currentHarmonic = theta => 0.07 * Math.sin(5 * theta - 0.4) + 0.04 * Math.sin(7 * theta + 0.1)
-    const va = vRms * Math.SQRT2 * swellA * flicker * (Math.sin(angle) + harmonic(angle))
+    const va = vRms * Math.SQRT2 * swellA * flicker * (Math.sin(angle) + harmonic(angle)) + transientA
     const vb = vRms * Math.SQRT2 * sagB * flicker * (Math.sin(angle - 2 * Math.PI / 3) + harmonic(angle - 2 * Math.PI / 3))
     const vc = vRms * Math.SQRT2 * 0.99 * flicker * (Math.sin(angle + 2 * Math.PI / 3) + harmonic(angle + 2 * Math.PI / 3))
     const ia = iRms * Math.SQRT2 * (Math.sin(angle - 0.43) + currentHarmonic(angle))
     const ib = iRms * Math.SQRT2 * 0.96 * (Math.sin(angle - 2 * Math.PI / 3 - 0.47) + currentHarmonic(angle - 2 * Math.PI / 3))
     const ic = iRms * Math.SQRT2 * 1.04 * (Math.sin(angle + 2 * Math.PI / 3 - 0.39) + currentHarmonic(angle + 2 * Math.PI / 3))
     rows.push({
-      timestamp: new Date(timestamp).toISOString(),
+      timestamp,
       Va: toFixedNumber(va, 5),
       Vb: toFixedNumber(vb, 5),
       Vc: toFixedNumber(vc, 5),
@@ -744,9 +932,13 @@ export function analyzePowerQuality(dataset = null) {
 
   const thdVAvg = mean(PHASES.map(phase => phaseResults[`Fase ${phase}`].thdV))
   const thdIAvg = mean(PHASES.map(phase => phaseResults[`Fase ${phase}`].thdI))
+  const interharmonicVMax = Math.max(...PHASES.map(phase => phaseResults[`Fase ${phase}`].interharmonicVMax), 0)
+  const interharmonicIMax = Math.max(...PHASES.map(phase => phaseResults[`Fase ${phase}`].interharmonicIMax), 0)
   const unbalance = voltageUnbalance(voltageStats.A.rms, voltageStats.B.rms, voltageStats.C.rms)
   const rmsSeries = buildRmsSeries(rows, nominalVoltage)
   const pst95 = percentile(rmsSeries.map(point => point.pst), 0.95)
+  const measurement = buildMeasurementProfile(rows, sampleRate, frequency, nominalVoltage, rmsSeries)
+  const transientEvents = detectTransientEvents(rows, nominalVoltage)
   const fpValues = rows.map(row => row.fp).filter(value => Number.isFinite(value) && value > 0)
   const fpFromPower = rows
     .map(row => Number.isFinite(row.p) && Number.isFinite(row.q) ? Math.abs(row.p) / Math.sqrt(row.p * row.p + row.q * row.q) : null)
@@ -772,14 +964,18 @@ export function analyzePowerQuality(dataset = null) {
     irmsAvg: toFixedNumber(mean(PHASES.map(phase => currentStats[phase].rms)), 3),
     thdVAvg: toFixedNumber(thdVAvg, 3),
     thdIAvg: toFixedNumber(thdIAvg, 3),
+    interharmonicVMax: toFixedNumber(interharmonicVMax, 3),
+    interharmonicIMax: toFixedNumber(interharmonicIMax, 3),
+    transientCount: transientEvents.length,
     unbalance: toFixedNumber(unbalance, 3),
     pst95: toFixedNumber(pst95, 3),
     fpAvg: toFixedNumber(fpAvg, 4),
     voltageCompliancePct: toFixedNumber(voltageCompliancePct, 1),
+    frequencyCompliancePct: measurement.frequencyCompliancePct,
     lastTimestamp: rows[rows.length - 1]?.timestamp ?? Date.now(),
   }
 
-  const events = addIndexEvents(detectVoltageEvents(rmsSeries, nominalVoltage), baseSummary)
+  const events = addIndexEvents([...detectVoltageEvents(rmsSeries, nominalVoltage), ...transientEvents], baseSummary)
   const summary = {
     ...baseSummary,
     eventsCount: events.length,
@@ -797,6 +993,10 @@ export function analyzePowerQuality(dataset = null) {
     thdI: summary.thdIAvg,
     harmonics: fallbackHarmonics(summary.thdVAvg, summary.vrmsAvg || 1, 'voltage'),
     currentHarmonics: fallbackHarmonics(summary.thdIAvg, summary.irmsAvg || 1, 'current'),
+    interharmonics: PHASES.flatMap(phase => phaseResults[`Fase ${phase}`].interharmonics).sort((a, b) => b.percent - a.percent).slice(0, 12),
+    currentInterharmonics: PHASES.flatMap(phase => phaseResults[`Fase ${phase}`].currentInterharmonics).sort((a, b) => b.percent - a.percent).slice(0, 12),
+    interharmonicVMax: summary.interharmonicVMax,
+    interharmonicIMax: summary.interharmonicIMax,
     waveformBased: Object.values(phaseResults).some(phase => phase.waveformBased),
   }
 
@@ -816,6 +1016,7 @@ export function analyzePowerQuality(dataset = null) {
     },
     phasors,
     power,
+    measurement,
     events,
     eventSummary: eventSummary(events),
     conformity,

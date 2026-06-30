@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useToast } from '../components/Toast'
-import { exportJSON, exportCSV, exportText } from '../utils/export'
+import { exportJSON, exportCSV, exportText, exportHTML, printHTML, exportDOCX } from '../utils/export'
 import { useAppContext } from '../context/AppContext'
 
 const ALL_SECTIONS = [
@@ -65,6 +65,105 @@ function buildSummaryCards(analysis) {
   ]
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function complianceRows(analysis) {
+  return analysis.conformity.checks.map(check => [
+    check.name,
+    check.limit,
+    typeof check.value === 'number' ? fmt(check.value, check.value < 10 ? 2 : 1) : check.value,
+    check.ok ? 'Conforme' : 'Não conforme',
+  ])
+}
+
+function reportText(data, sections, analysis) {
+  const txt = Object.entries(data).map(([k, v]) => `${k}: ${v}`).join('\n')
+  const indicators = [
+    `Conformidade: ${analysis.conformity.score}%`,
+    `THD-V medio: ${fmt(analysis.summary.thdVAvg, 2)}%`,
+    `THD-I medio: ${fmt(analysis.summary.thdIAvg, 2)}%`,
+    `Inter-harmonicas V max.: ${fmt(analysis.summary.interharmonicVMax, 2)}%`,
+    `Inter-harmonicas I max.: ${fmt(analysis.summary.interharmonicIMax, 2)}%`,
+    `Desequilibrio: ${fmt(analysis.summary.unbalance, 2)}%`,
+    `Transitórios: ${analysis.summary.transientCount}`,
+    `Eventos: ${analysis.events.length}`,
+  ].join('\n')
+  return `RELATÓRIO SMQE\n${'-'.repeat(40)}\n${txt}\n\nINDICADORES\n${indicators}\n\nSeções: ${sections.join(', ')}`
+}
+
+function buildReportDocument(data, sections, analysis) {
+  return {
+    title: data['Título de Estudo'] ?? 'Relatório de Qualidade de Energia',
+    paragraphs: [
+      `Instalação: ${data['Local da Instalação'] ?? '-'}`,
+      `Período: ${data['Período de Medição'] ?? '-'}`,
+      `Fonte analisada: ${analysis.sourceName}`,
+      `Método: ${analysis.measurement.method} (${analysis.measurement.measurementClass})`,
+      `Seções incluídas: ${sections.join(', ')}`,
+    ],
+    tables: [
+      [['Indicador', 'Valor', 'Unidade'], ...buildSummaryCards(analysis).map(([n, v, u]) => [n, v, u])],
+      [['Parâmetro', 'Limite', 'Valor', 'Status'], ...complianceRows(analysis)],
+      [['Data/Hora', 'Tipo', 'Descrição', 'Severidade', 'Fase', 'Duração'], ...analysis.events.slice(0, 40).map(event => [event.ts, event.tipo, event.desc, event.sev, event.fase, event.dur])],
+    ],
+  }
+}
+
+function buildReportHTML(data, sections, analysis) {
+  const cards = buildSummaryCards(analysis)
+  const rows = complianceRows(analysis)
+  const eventRows = analysis.events.slice(0, 40)
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(data['Título de Estudo'] ?? 'Relatório SMQE')}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #172033; margin: 32px; }
+    h1 { color: #1d4ed8; margin-bottom: 4px; }
+    h2 { color: #334155; margin-top: 28px; }
+    .meta, .foot { color: #64748b; font-size: 12px; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+    .card { border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; }
+    .card b { display: block; color: #64748b; font-size: 11px; }
+    .card span { color: #1d4ed8; font-size: 20px; font-weight: 800; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #cbd5e1; padding: 7px 8px; font-size: 12px; text-align: left; }
+    th { background: #eff6ff; color: #1e3a8a; }
+    .ok { color: #15803d; font-weight: 700; }
+    .bad { color: #dc2626; font-weight: 700; }
+    @media print { body { margin: 18mm; } .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <button class="no-print" onclick="window.print()">Imprimir / salvar PDF</button>
+  <h1>Relatório de Qualidade de Energia</h1>
+  <div class="meta">${escapeHtml(data['Título de Estudo'])} · ${escapeHtml(data['Local da Instalação'])} · ${escapeHtml(data['Período de Medição'])}</div>
+  <div class="meta">Fonte: ${escapeHtml(analysis.sourceName)} · ${escapeHtml(analysis.measurement.method)} · ${escapeHtml(analysis.measurement.measurementClass)}</div>
+  <div class="cards">
+    ${cards.map(([n, v, u]) => `<div class="card"><b>${escapeHtml(n)}</b><span>${escapeHtml(v)}</span><div>${escapeHtml(u)}</div></div>`).join('')}
+  </div>
+  <h2>Resumo de Conformidade</h2>
+  <table><thead><tr><th>Parâmetro</th><th>Limite</th><th>Valor</th><th>Status</th></tr></thead><tbody>
+    ${rows.map(row => `<tr>${row.map((cell, index) => `<td class="${index === 3 ? (cell === 'Conforme' ? 'ok' : 'bad') : ''}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
+  </tbody></table>
+  <h2>Eventos Detectados</h2>
+  <table><thead><tr><th>Data/Hora</th><th>Tipo</th><th>Descrição</th><th>Sev.</th><th>Fase</th><th>Duração</th></tr></thead><tbody>
+    ${eventRows.map(event => `<tr><td>${escapeHtml(event.ts)}</td><td>${escapeHtml(event.tipo)}</td><td>${escapeHtml(event.desc)}</td><td>${escapeHtml(event.sev)}</td><td>${escapeHtml(event.fase)}</td><td>${escapeHtml(event.dur)}</td></tr>`).join('')}
+  </tbody></table>
+  <h2>Seções</h2>
+  <p>${escapeHtml(sections.join(', '))}</p>
+  <div class="foot">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+</body>
+</html>`
+}
+
 export default function Relatorios({ onNavigate }) {
   const toast = useToast()
   const { pqAnalysis, installation, dateFrom, dateTo } = useAppContext()
@@ -113,27 +212,30 @@ export default function Relatorios({ onNavigate }) {
   function handleDownload() {
     if (!generated) { toast('Gere o relatório primeiro', 'warning'); return }
     const exportFormat = format.split(' ')[0]
+    const sections = [...selectedSections]
     if (exportFormat === 'JSON') {
       exportJSON({
         template,
         format,
-        sections: [...selectedSections],
+        sections,
         data: reportData,
         resumo: pqAnalysis.summary,
         conformidade: pqAnalysis.conformity,
         eventos: pqAnalysis.events,
         geradoEm: new Date().toISOString(),
       }, 'relatorio_smqe.json')
+    } else if (exportFormat === 'HTML') {
+      exportHTML(buildReportHTML(reportData, sections, pqAnalysis), 'relatorio_smqe.html')
+    } else if (exportFormat === 'PDF') {
+      const opened = printHTML(buildReportHTML(reportData, sections, pqAnalysis), 'Relatório SMQE')
+      if (!opened) {
+        toast('O navegador bloqueou a janela de impressão', 'warning')
+        return
+      }
+    } else if (exportFormat === 'DOCX') {
+      exportDOCX(buildReportDocument(reportData, sections, pqAnalysis), 'relatorio_smqe.docx')
     } else {
-      const txt = Object.entries(reportData).map(([k,v]) => `${k}: ${v}`).join('\n')
-      const indicators = [
-        `Conformidade: ${pqAnalysis.conformity.score}%`,
-        `THD-V médio: ${fmt(pqAnalysis.summary.thdVAvg, 2)}%`,
-        `THD-I médio: ${fmt(pqAnalysis.summary.thdIAvg, 2)}%`,
-        `Desequilíbrio: ${fmt(pqAnalysis.summary.unbalance, 2)}%`,
-        `Eventos: ${pqAnalysis.events.length}`,
-      ].join('\n')
-      exportText(`RELATÓRIO SMQE\n${'-'.repeat(40)}\n${txt}\n\nINDICADORES\n${indicators}\n\nSeções: ${[...selectedSections].join(', ')}`, 'relatorio_smqe.txt')
+      exportText(reportText(reportData, sections, pqAnalysis), 'relatorio_smqe.txt')
     }
     toast(`Relatório exportado em ${exportFormat}`, 'success')
   }
@@ -311,12 +413,7 @@ export default function Relatorios({ onNavigate }) {
 function ReportPage({ page, sections, data, totalPages, analysis }) {
   const merged = { ...Object.fromEntries(REPORT_DATA_FIELDS), ...data }
   const summaryCards = buildSummaryCards(analysis).slice(0, 5).map(([name, value, unit]) => `${value} ${unit}`.trim())
-  const complianceRows = analysis.conformity.checks.map(check => [
-    check.name,
-    check.limit,
-    typeof check.value === 'number' ? fmt(check.value, check.value < 10 ? 2 : 1) : check.value,
-    check.ok ? 'Conforme' : 'Não conforme',
-  ])
+  const reportComplianceRows = complianceRows(analysis)
   return (
     <div className="report-preview-page">
       <div style={{ display: 'flex', alignItems: 'center', borderBottom: '2px solid #cbd5e1', paddingBottom: 18 }}>
@@ -342,7 +439,7 @@ function ReportPage({ page, sections, data, totalPages, analysis }) {
           </div>
           <h3 style={{ marginTop: 22, fontSize: 13 }}>RESUMO DE CONFORMIDADE</h3>
           <table className="tbl"><tbody>
-            {complianceRows.map(r=>(
+            {reportComplianceRows.map(r=>(
               <tr key={r[0]}>{r.map((c,i)=><td key={i} style={i===3?{color:c === 'Conforme' ? '#16a34a' : '#dc2626',fontWeight:700}:{}}>{c}</td>)}</tr>
             ))}
           </tbody></table>

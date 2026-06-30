@@ -34,7 +34,7 @@ function eventRows(events, fase) {
 }
 
 function summaryRows(summary, total) {
-  const names = ['Afundamento', 'Elevação', 'Interrupção', 'Desequilíbrio', 'Flicker', 'Harmônicas', 'FP baixo']
+  const names = ['Afundamento', 'Elevação', 'Interrupção', 'Transitório', 'Desequilíbrio', 'Flicker', 'Harmônicas', 'Inter-harmônicas', 'FP baixo']
   return names.map(name => {
     const count = summary[name] ?? 0
     const pct = total > 0 ? (100 * count / total) : 0
@@ -75,8 +75,10 @@ export default function QualidadeEnergia({ onNavigate }) {
     { name: 'Corrente RMS',    value: formatCurrent(phaseData.irms),            ref: `${pqAnalysis.sampleCount.toLocaleString('pt-BR')} amostras`, color: '#16a34a', ok: true },
     { name: 'THD-V Médio',     value: formatPct(phaseData.thdV),                ref: 'IEEE 519: <=5%', color: '#0284c7', ok: phaseData.thdV <= 5 },
     { name: 'THD-I Médio',     value: formatPct(phaseData.thdI),                ref: 'IEEE 519: <=8%', color: '#7c3aed', ok: phaseData.thdI <= 8 },
+    { name: 'Inter-harm V',    value: formatPct(phaseData.interharmonicVMax),   ref: 'IEC: <=2%', color: '#0f766e', ok: phaseData.interharmonicVMax <= 2 },
     { name: 'Desequilíbrio V', value: formatPct(pqAnalysis.summary.unbalance),  ref: 'PRODIST: <=2%', color: '#d97706', ok: pqAnalysis.summary.unbalance <= 2 },
     { name: 'Flicker Pst 95%', value: fmt(pqAnalysis.summary.pst95, 2),         ref: 'IEC: <=1,0', color: '#9333ea', ok: pqAnalysis.summary.pst95 <= 1 },
+    { name: 'Transitórios',    value: String(pqAnalysis.summary.transientCount), ref: 'Alta freq.', color: '#be123c', ok: pqAnalysis.summary.transientCount === 0 },
     { name: 'Frequência',      value: `${fmt(pqAnalysis.summary.freqAvg, 3)} Hz`, ref: 'PRODIST: 59,9-60,1', color: '#059669', ok: pqAnalysis.summary.freqAvg >= 59.9 && pqAnalysis.summary.freqAvg <= 60.1 },
     { name: 'Eventos Totais',  value: String(phaseEvents.length),               ref: hasImportedDataset ? pqAnalysis.sourceName : 'Demonstração', color: '#dc2626', ok: phaseEvents.length === 0 },
     { name: 'Conformidade',    value: `${fmt(pqAnalysis.conformity.score, 1)} %`, ref: 'Meta: >=95%', color: '#16a34a', ok: pqAnalysis.conformity.score >= 95 },
@@ -147,7 +149,7 @@ export default function QualidadeEnergia({ onNavigate }) {
           </div>
 
           <div style={{ padding: '8px 12px', flexShrink: 0 }}>
-            <div className="mini-kpi-row" style={{ gridTemplateColumns: 'repeat(9,1fr)' }}>
+            <div className="mini-kpi-row" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(118px,1fr))' }}>
               {miniKpis.map(k => (
                 <div key={k.name} className="mini-kpi">
                   <div className="mini-kpi__name">{k.name}</div>
@@ -212,7 +214,11 @@ export default function QualidadeEnergia({ onNavigate }) {
                       <span style={{ fontWeight: 700, color: d.color, marginLeft: 'auto' }}>{fmt(d.value, 1)}%</span>
                     </div>
                   ))}
-                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8 }}>Base: {pqAnalysis.sampleCount.toLocaleString('pt-BR')} amostras<br />Fonte: {hasImportedDataset ? 'CSV importado' : 'demo calculado'}</div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8 }}>
+                    Base: {pqAnalysis.sampleCount.toLocaleString('pt-BR')} amostras<br />
+                    {pqAnalysis.measurement.measurementClass}<br />
+                    Janela: {pqAnalysis.measurement.windowCycles} ciclos ({fmt(pqAnalysis.measurement.windowMs, 1)} ms)
+                  </div>
                 </div>
               </div>
             </div>
