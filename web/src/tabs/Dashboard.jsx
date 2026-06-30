@@ -41,16 +41,55 @@ const INST_INFO_MAP = {
   ],
 }
 
+const ENERGY_TARIFF_BRL_KWH = 0.69
+const BILLING_WINDOW_MIN_HOURS = 0.25
+
 function fmt(value, digits = 2) {
   return Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : '-'
 }
 
 function fmtEnergy(kWh) {
-  return Math.abs(kWh) >= 1000 ? `${fmt(kWh / 1000, 2)} MWh` : `${fmt(kWh, 0)} kWh`
+  if (!Number.isFinite(kWh)) return 'N/D'
+  const abs = Math.abs(kWh)
+  if (abs >= 1000) return `${fmt(kWh / 1000, 2)} MWh`
+  if (abs >= 1) return `${fmt(kWh, 1)} kWh`
+  return `${fmt(kWh * 1000, 0)} Wh`
+}
+
+function fmtReactiveEnergy(kvarh) {
+  if (!Number.isFinite(kvarh)) return 'N/D'
+  const abs = Math.abs(kvarh)
+  if (abs >= 1000) return `${fmt(kvarh / 1000, 2)} MVArh`
+  if (abs >= 1) return `${fmt(kvarh, 1)} kVArh`
+  return `${fmt(kvarh * 1000, 0)} VArh`
 }
 
 function fmtPower(kW) {
-  return Math.abs(kW) >= 1000 ? `${fmt(kW / 1000, 3)} MW` : `${fmt(kW, 0)} kW`
+  if (!Number.isFinite(kW)) return 'N/D'
+  const abs = Math.abs(kW)
+  if (abs >= 1000) return `${fmt(kW / 1000, 3)} MW`
+  return `${fmt(kW, abs < 10 ? 1 : 0)} kW`
+}
+
+function fmtApparent(kva) {
+  if (!Number.isFinite(kva)) return 'N/D'
+  const abs = Math.abs(kva)
+  if (abs >= 1000) return `${fmt(kva / 1000, 3)} MVA`
+  return `${fmt(kva, abs < 10 ? 1 : 0)} kVA`
+}
+
+function fmtMoney(value) {
+  if (!Number.isFinite(value)) return 'N/D'
+  const digits = Math.abs(value) < 100 ? 2 : 0
+  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
+}
+
+function fmtDuration(hours) {
+  if (!Number.isFinite(hours) || hours <= 0) return 'sem duração'
+  if (hours < 1 / 60) return `${fmt(hours * 3600, 1)} s`
+  if (hours < 1) return `${fmt(hours * 60, 1)} min`
+  if (hours < 48) return `${fmt(hours, 2)} h`
+  return `${fmt(hours / 24, 1)} dias`
 }
 
 function bucket(values, count) {
@@ -63,78 +102,130 @@ function avg(values) {
   return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : 0
 }
 
-function shapedDemand(baseDemand, index, count) {
-  const dailyShape = count === 24 ? (index > 7 && index < 20 ? 1.16 : 0.68) : 1
-  return baseDemand * dailyShape * (0.94 + 0.08 * Math.sin(index * 0.7))
+function spanHours(points) {
+  const timestamps = points.map(point => point?.timestamp).filter(Number.isFinite)
+  if (timestamps.length >= 2) return Math.max(0, (Math.max(...timestamps) - Math.min(...timestamps)) / 3600000)
+  const durationMs = points.reduce((sum, point) => sum + (Number.isFinite(point?.durationMs) ? point.durationMs : 0), 0)
+  return Math.max(0, durationMs / 3600000)
 }
 
-function buildSeries(period, analysis) {
-  const source = analysis.rmsSeries ?? []
-  const baseDemand = Math.max(1, analysis.power?.pKw || 1)
+function measuredRows(analysis, key) {
+  return (analysis.normalizedRows ?? []).filter(row => Number.isFinite(row?.[key]))
+}
 
-  if (period === 'Dia') {
-    const groups = bucket(source, 24)
-    return Array.from({ length: 24 }, (_, i) => {
-      const group = groups[i] ?? []
-      const demand = avg(group.map(row => row.pKw).filter(value => Math.abs(value) > 0.001)) || shapedDemand(baseDemand, i, 24)
-      return {
-      label: `${String(i).padStart(2, '0')}h`,
-      energy: +(demand * 1).toFixed(0),
-      demand: +demand.toFixed(0),
-      fp: +(avg(group.map(row => row.fp)) || analysis.summary.fpAvg).toFixed(3),
-    }})
+function estimateActivePowerKw(point, analysis) {
+  const fallback = Math.abs(analysis.power?.pKw || 0)
+  if (!point) return fallback
+  const voltage = point.Vavg || avg([point.Va, point.Vb, point.Vc].filter(value => value > 0))
+  const current = point.Iavg || avg([point.Ia, point.Ib, point.Ic].filter(value => value > 0))
+  const fp = Math.abs(point.fp || analysis.summary?.fpAvg || analysis.power?.fp || 0.92)
+  const estimated = voltage > 0 && current > 0 ? (3 * voltage * current * fp) / 1000 : fallback
+  return Number.isFinite(estimated) && estimated > 0 ? estimated : fallback
+}
+
+function integrateEnergy(points, key, fallbackHours = 0) {
+  if (!points.length) return 0
+  if (points.length === 1) return Math.abs(points[0]?.[key] || 0) * fallbackHours
+
+  let total = 0
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1]
+    const cur = points[i]
+    const dtHours = Math.max(0, ((cur.timestamp ?? 0) - (prev.timestamp ?? 0)) / 3600000)
+    const pAvg = (Math.abs(prev[key] || 0) + Math.abs(cur[key] || 0)) / 2
+    total += pAvg * dtHours
   }
-  if (period === 'Semana') {
-    const groups = bucket(source, 7)
-    return ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d, i) => {
-      const group = groups[i] ?? []
-      const demand = avg(group.map(row => row.pKw).filter(value => Math.abs(value) > 0.001)) || shapedDemand(baseDemand, i, 7)
-      return {
-        label: d,
-        energy: +(demand * 24).toFixed(0),
-        demand: +demand.toFixed(0),
-        fp: +(avg(group.map(row => row.fp)) || analysis.summary.fpAvg).toFixed(3),
-      }
-    })
+  return total || Math.abs(avg(points.map(point => point[key]))) * fallbackHours
+}
+
+function buildWindowStats(analysis) {
+  const pRows = measuredRows(analysis, 'p')
+  const qRows = measuredRows(analysis, 'q')
+  const windowHours = spanHours(analysis.normalizedRows ?? analysis.rmsSeries ?? [])
+  const hasMeasuredPower = pRows.length > 0
+  const measuredEnergy = pRows.length >= 2
+    ? integrateEnergy(pRows, 'p')
+    : Math.abs(avg(pRows.map(row => row.p))) * windowHours
+  const estimatedPower = estimateActivePowerKw(null, analysis)
+  const energyKWh = hasMeasuredPower ? measuredEnergy : estimatedPower * windowHours
+  const reactiveKvarh = qRows.length >= 2
+    ? integrateEnergy(qRows, 'q')
+    : Math.abs(analysis.power?.qKvar || 0) * windowHours
+  const maxDemandKw = hasMeasuredPower
+    ? Math.max(...pRows.map(row => Math.abs(row.p)).filter(Number.isFinite), 0)
+    : 0
+  const apparentKva = Math.abs(analysis.power?.sKva || 0)
+
+  return {
+    windowHours,
+    hasMeasuredPower,
+    billingReady: hasMeasuredPower && pRows.length >= 2 && windowHours >= BILLING_WINDOW_MIN_HOURS,
+    energyKWh,
+    reactiveKvarh,
+    maxDemandKw,
+    apparentKva,
+    estimatedPower,
   }
-  const groups = bucket(source, 31)
-  return Array.from({ length: 31 }, (_, i) => {
-    const d = new Date(2024, 4, i + 1)
-    const label = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
-    const group = groups[i] ?? []
-    const demand = avg(group.map(row => row.pKw).filter(value => Math.abs(value) > 0.001)) || shapedDemand(baseDemand, i, 31)
+}
+
+function labelForPoint(point, index, windowHours) {
+  if (!Number.isFinite(point?.timestamp)) return `A${index + 1}`
+  const date = new Date(point.timestamp)
+  if (windowHours < 1) return date.toLocaleTimeString('pt-BR', { minute: '2-digit', second: '2-digit' })
+  if (windowHours < 24) return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  if (windowHours < 24 * 7) return `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${date.getHours()}h`
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+function buildSeries(period, analysis, stats) {
+  const countByPeriod = { Dia: 24, Semana: 7, Mês: 31 }
+  const pointCount = countByPeriod[period] ?? 24
+  const source = stats.hasMeasuredPower
+    ? measuredRows(analysis, 'p')
+    : (analysis.rmsSeries ?? []).map(point => ({ ...point, p: estimateActivePowerKw(point, analysis) }))
+  const groups = bucket(source, pointCount)
+  const fallbackBucketHours = groups.length ? stats.windowHours / groups.length : 0
+  let cumulativeEnergy = 0
+
+  return groups.map((group, index) => {
+    const bucketHours = spanHours(group) || fallbackBucketHours
+    const demand = Math.abs(avg(group.map(row => row.p).filter(Number.isFinite)))
+    const energy = integrateEnergy(group, 'p', bucketHours)
+    cumulativeEnergy += energy
+
     return {
-      label,
-      energy: +(demand * 24).toFixed(0),
-      demand: +demand.toFixed(0),
+      label: labelForPoint(group[0], index, stats.windowHours),
+      energy: +cumulativeEnergy.toFixed(cumulativeEnergy < 1 ? 3 : 1),
+      demand: +demand.toFixed(demand < 10 ? 2 : 1),
       fp: +(avg(group.map(row => row.fp)) || analysis.summary.fpAvg).toFixed(3),
     }
   })
 }
 
-function buildKPI(analysis) {
-  const monthlyEnergy = Math.max(0, analysis.power.pKw * 24 * 31)
-  const monthlyReactive = Math.max(0, Math.abs(analysis.power.qKvar) * 24 * 31)
-  const cost = monthlyEnergy * 0.69
+function buildKPI(analysis, stats) {
+  const cost = stats.billingReady ? stats.energyKWh * ENERGY_TARIFF_BRL_KWH : NaN
+  const energyDetail = stats.hasMeasuredPower
+    ? `janela medida: ${fmtDuration(stats.windowHours)}`
+    : `estimada na amostra: ${fmtDuration(stats.windowHours)}`
   const d = {
-    energy: fmtEnergy(monthlyEnergy),
-    reactive: Math.abs(monthlyReactive) >= 1000 ? `${fmt(monthlyReactive / 1000, 2)} MVArh` : `${fmt(monthlyReactive, 0)} kVArh`,
-    demand: fmtPower(analysis.power.sKva),
+    energy: fmtEnergy(stats.energyKWh),
+    reactive: fmtReactiveEnergy(stats.reactiveKvarh),
+    demand: stats.hasMeasuredPower ? fmtPower(stats.maxDemandKw) : fmtApparent(stats.apparentKva),
     fp: `${fmt(analysis.summary.fpAvg, 3)} ind.`,
     thdv: `${fmt(analysis.summary.thdVAvg, 2)} %`,
     thdi: `${fmt(analysis.summary.thdIAvg, 2)} %`,
     events: String(analysis.events.length),
-    cost: `R$ ${cost.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`,
+    cost: fmtMoney(cost),
   }
   return [
-    { name: 'Energia Ativa',   value: d.energy,  delta: '+8,7%',  color: '#16a34a', bg: '#dcfce7', icon: '⚡' },
-    { name: 'Energia Reativa', value: d.reactive, delta: '+6,1%',  color: '#9333ea', bg: '#f3e8ff', icon: 'φ' },
-    { name: 'Demanda Máxima',  value: d.demand,   delta: '+4,3%',  color: '#ea580c', bg: '#ffedd5', icon: '◎' },
-    { name: 'FP Médio',        value: d.fp,        delta: '+0,03',  color: '#1d4ed8', bg: '#dbeafe', icon: '◯' },
-    { name: 'THD-V Médio',     value: d.thdv,     delta: '-0,21pp',color: '#0284c7', bg: '#e0f2fe', icon: '~' },
-    { name: 'THD-I Médio',     value: d.thdi,     delta: '-0,64pp',color: '#7c3aed', bg: '#ede9fe', icon: '≈' },
-    { name: 'Eventos Detec.',  value: d.events,   delta: '+4',     color: '#dc2626', bg: '#fee2e2', icon: '⚠' },
-    { name: 'Custo Estimado',  value: d.cost,     delta: '+9,2%',  color: '#15803d', bg: '#dcfce7', icon: '$' },
+    { name: 'Energia Ativa',   value: d.energy,  detail: energyDetail, color: '#16a34a', bg: '#dcfce7', icon: '⚡', tone: stats.hasMeasuredPower ? 'ok' : 'warn' },
+    { name: 'Energia Reativa', value: d.reactive, detail: `janela: ${fmtDuration(stats.windowHours)}`, color: '#9333ea', bg: '#f3e8ff', icon: 'φ', tone: 'muted' },
+    { name: stats.hasMeasuredPower ? 'Demanda Máxima' : 'Potência Aparente', value: d.demand, detail: stats.hasMeasuredPower ? 'P_kW medido' : 'estimada por fasores', color: '#ea580c', bg: '#ffedd5', icon: '◎', tone: stats.hasMeasuredPower ? 'ok' : 'warn' },
+    { name: 'FP Médio',        value: d.fp,        detail: 'média da amostra', color: '#1d4ed8', bg: '#dbeafe', icon: '◯', tone: 'muted' },
+    { name: 'THD-V Médio',     value: d.thdv,     detail: 'média da amostra', color: '#0284c7', bg: '#e0f2fe', icon: '~', tone: 'muted' },
+    { name: 'THD-I Médio',     value: d.thdi,     detail: 'média da amostra', color: '#7c3aed', bg: '#ede9fe', icon: '≈', tone: 'muted' },
+    { name: 'Eventos Detec.',  value: d.events,   detail: 'detectados na janela', color: '#dc2626', bg: '#fee2e2', icon: '⚠', tone: analysis.events.length ? 'warn' : 'ok' },
+    { name: 'Custo Estimado',  value: d.cost,     detail: stats.billingReady ? 'tarifa sobre janela medida' : 'sem base de faturamento', color: '#15803d', bg: '#dcfce7', icon: '$', tone: stats.billingReady ? 'ok' : 'warn' },
   ]
 }
 
@@ -145,13 +236,17 @@ export default function Dashboard({ onNavigate }) {
   const [loading, setLoading] = useState(false)
   const [seed, setSeed] = useState(0)
 
-  const series = useMemo(() => buildSeries(period, pqAnalysis), [period, seed, pqAnalysis])
-  const kpi = useMemo(() => buildKPI(pqAnalysis), [pqAnalysis])
+  const windowStats = useMemo(() => buildWindowStats(pqAnalysis), [pqAnalysis])
+  const series = useMemo(() => buildSeries(period, pqAnalysis, windowStats), [period, seed, pqAnalysis, windowStats])
+  const kpi = useMemo(() => buildKPI(pqAnalysis, windowStats), [pqAnalysis, windowStats])
   const instInfo = INST_INFO_MAP[installation] ?? INST_INFO_MAP['Subestação Principal']
   const events = useMemo(() => pqAnalysis.events.slice(0, 8), [pqAnalysis.events])
   const harmonicData = useMemo(() => (pqAnalysis.phases['Fase A']?.harmonics ?? [])
     .filter(h => h.order <= 13)
     .map(h => ({ order: `${h.order}ª`, mag: h.percent ?? 0, limit: h.limitPct })), [pqAnalysis])
+  const dataBasis = windowStats.hasMeasuredPower ? 'P_kW medido' : 'potência estimada por fasores'
+  const basisColor = windowStats.billingReady ? '#16a34a' : '#d97706'
+  const detailColor = tone => tone === 'warn' ? '#d97706' : tone === 'ok' ? '#16a34a' : '#64748b'
 
   const STATUS = [
     { label: 'Aquisição de Dados', val: 'Online',           color: '#16a34a' },
@@ -185,6 +280,9 @@ export default function Dashboard({ onNavigate }) {
         <select value={loadType} onChange={e => setLoadType(e.target.value)} style={{ width: 156 }}>
           {LOAD_TYPES.map(l => <option key={l}>{l}</option>)}
         </select>
+        <span style={{ fontSize: 11, color: basisColor, fontWeight: 700, whiteSpace: 'nowrap' }}>
+          Janela: {fmtDuration(windowStats.windowHours)} · {dataBasis}
+        </span>
         <div className="spacer" />
         {['Dia', 'Semana', 'Mês'].map(p => (
           <button key={p}
@@ -208,7 +306,7 @@ export default function Dashboard({ onNavigate }) {
               <div className="kpi-card__info">
                 <div className="kpi-card__name">{k.name}</div>
                 <div className="kpi-card__value" style={{ color: k.color }}>{k.value}</div>
-                <div className="kpi-card__delta">{k.delta} vs. mês ant.</div>
+                <div className="kpi-card__delta" style={{ color: detailColor(k.tone) }}>{k.detail}</div>
               </div>
             </div>
           ))}
@@ -222,7 +320,7 @@ export default function Dashboard({ onNavigate }) {
         <div className="dashboard-col">
           <div className="panel" style={{ flex: 2 }}>
             <div className="panel__head">
-              Potência Ativa e Energia Acumulada — {period}
+              Potência e Energia da Janela — {period}
               <span className="panel__head-actions">
                 {['Dia', 'Semana', 'Mês'].map(p => (
                   <button key={p} className={`btn btn-sm ${p === period ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPeriod(p)}>{p}</button>
@@ -234,12 +332,12 @@ export default function Dashboard({ onNavigate }) {
                 <LineChart data={series} margin={{ top: 4, right: 30, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={period === 'Mês' ? 4 : 0} />
-                  <YAxis yAxisId="l" tick={{ fontSize: 10 }} label={{ value: 'kWh', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+                  <YAxis yAxisId="l" tick={{ fontSize: 10 }} label={{ value: 'kWh janela', angle: -90, position: 'insideLeft', fontSize: 10 }} />
                   <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10 }} label={{ value: 'kW', angle: 90, position: 'insideRight', fontSize: 10 }} />
-                  <Tooltip formatter={(v, n) => [v.toLocaleString('pt-BR'), n]} />
+                  <Tooltip formatter={(v, n) => [Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 3 }), n]} />
                   <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-                  <Line yAxisId="l" type="monotone" dataKey="energy" stroke="#1d4ed8" dot={false} name="Energia (kWh)" strokeWidth={2} />
-                  <Line yAxisId="r" type="monotone" dataKey="demand" stroke="#ea580c" dot={false} name="Demanda (kW)" strokeWidth={1.5} strokeDasharray="4 2" />
+                  <Line yAxisId="l" type="monotone" dataKey="energy" stroke="#1d4ed8" dot={false} name="Energia acumulada (kWh)" strokeWidth={2} />
+                  <Line yAxisId="r" type="monotone" dataKey="demand" stroke="#ea580c" dot={false} name={windowStats.hasMeasuredPower ? 'Potência ativa (kW)' : 'Potência estimada (kW)'} strokeWidth={1.5} strokeDasharray="4 2" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
