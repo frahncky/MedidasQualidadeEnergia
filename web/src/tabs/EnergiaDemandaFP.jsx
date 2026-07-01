@@ -175,13 +175,19 @@ function buildMetrics(analysis, tariffName, fpTarget) {
   const qRows = rows.filter(row => Number.isFinite(row?.q) && Number.isFinite(row?.timestamp))
   const windowHours = spanHours(rows.length ? rows : (analysis.rmsSeries ?? []))
   const hasMeasuredPower = pRows.length >= 2
+  const estimatedRows = hasMeasuredPower ? [] : (analysis.rmsSeries ?? []).map(row => ({
+    timestamp: row.timestamp,
+    p: estimatePowerFromRms(row, analysis),
+    fp: row.fp,
+  })).filter(row => Number.isFinite(row.timestamp) && Number.isFinite(row.p))
   const billingReady = hasMeasuredPower && windowHours >= MIN_BILLING_WINDOW_HOURS
-  const energyKWh = hasMeasuredPower ? integrate(pRows, 'p', windowHours) : NaN
+  const hasEstimatedPower = !hasMeasuredPower && estimatedRows.length >= 2 && windowHours > 0
+  const energyKWh = hasMeasuredPower ? integrate(pRows, 'p', windowHours) : hasEstimatedPower ? integrate(estimatedRows, 'p', windowHours) : NaN
   const reactiveKvarh = qRows.length >= 2 ? integrate(qRows, 'q', windowHours) : NaN
   const avgPowerKw = hasMeasuredPower ? Math.abs(avg(pRows.map(row => row.p))) : Math.abs(analysis.power?.pKw || NaN)
   const maxDemandKw = hasMeasuredPower ? Math.max(...pRows.map(row => Math.abs(row.p)).filter(Number.isFinite), 0) : NaN
   const fpAvg = clamp(analysis.summary?.fpAvg || analysis.power?.fp || 0, 0, 1)
-  const cost = billingReady ? energyKWh * tariff.energy : NaN
+  const cost = Number.isFinite(energyKWh) ? energyKWh * tariff.energy : NaN
   const qCap = billingReady ? calcCapacitorBank(avgPowerKw, fpAvg, fpTarget) : NaN
   const capacitorCost = Number.isFinite(qCap) ? qCap * BANK_COST_BRL_PER_KVAR : NaN
   const savings = billingReady && fpAvg < fpTarget ? cost * clamp((fpTarget - fpAvg) * 1.8, 0, 0.18) : NaN
@@ -193,6 +199,7 @@ function buildMetrics(analysis, tariffName, fpTarget) {
     tariff,
     windowHours,
     hasMeasuredPower,
+    hasEstimatedPower,
     billingReady,
     energyKWh,
     reactiveKvarh,
@@ -206,7 +213,7 @@ function buildMetrics(analysis, tariffName, fpTarget) {
     energyBars,
     loadProfile,
     demandCurve,
-    basis: billingReady ? 'janela medida' : hasMeasuredPower ? 'amostra curta' : 'sem P_kW medido',
+    basis: billingReady ? 'janela medida' : hasMeasuredPower ? 'amostra curta' : hasEstimatedPower ? 'estimado por fasores' : 'sem base',
   }
 }
 
@@ -215,9 +222,9 @@ function placeholderRows() {
 }
 
 function costPie(metrics) {
-  if (!metrics.billingReady) return [{ name: 'Sem base', value: 1, color: '#cbd5e1', amount: NaN }]
+  if (!Number.isFinite(metrics.cost)) return [{ name: 'Sem base', value: 1, color: '#cbd5e1', amount: NaN }]
   return [
-    { name: 'Energia ativa', value: 100, color: '#1d4ed8', amount: metrics.cost },
+    { name: metrics.billingReady ? 'Energia ativa' : 'Custo estimado', value: 100, color: '#1d4ed8', amount: metrics.cost },
   ]
 }
 
@@ -243,7 +250,7 @@ function scenarioRows(metrics, fpAtual, fpTarget) {
 
 function balanceRows(metrics) {
   return [
-    ['Energia ativa medida', fmtEnergy(metrics.energyKWh), metrics.billingReady ? '100,0%' : 'N/D', metrics.basis],
+    ['Energia ativa', fmtEnergy(metrics.energyKWh), metrics.billingReady ? '100,0%' : 'estimada', metrics.basis],
     ['Energia reativa medida', fmtReactiveEnergy(metrics.reactiveKvarh), 'N/D', metrics.hasMeasuredPower ? 'coluna Q_kVAr' : 'N/D'],
     ['Demanda máxima', fmtPower(metrics.maxDemandKw), 'N/D', metrics.hasMeasuredPower ? 'P_kW medido' : 'N/D'],
     ['Duração da janela', fmtDuration(metrics.windowHours), 'N/D', metrics.billingReady ? 'apta' : 'insuficiente'],
@@ -375,8 +382,8 @@ export default function EnergiaDemandaFP() {
 
       <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(7,1fr)' }}>
         {[
-          ['Energia Ativa Consumida', fmtEnergy(metrics.energyKWh), metrics.billingReady ? `janela: ${fmtDuration(metrics.windowHours)}` : 'sem base de faturamento', '#16a34a'],
-          ['Custo Total no Período', fmtMoney(metrics.cost), metrics.billingReady ? `tarifa: ${fmt(metrics.tariff.energy, 3)}/kWh` : 'N/D', '#16a34a'],
+          ['Energia Ativa', fmtEnergy(metrics.energyKWh), metrics.billingReady ? `janela: ${fmtDuration(metrics.windowHours)}` : metrics.basis, '#16a34a'],
+          ['Custo Estimado', fmtMoney(metrics.cost), Number.isFinite(metrics.cost) ? `${metrics.basis} · R$ ${fmt(metrics.tariff.energy, 3)}/kWh` : 'N/D', '#16a34a'],
           ['Demanda Máxima', fmtPower(metrics.maxDemandKw), metrics.hasMeasuredPower ? 'P_kW medido' : 'N/D', '#ea580c'],
           ['Fator de Potência Médio', `${fmt(metrics.fpAvg, 3)} ind.`, analysisStatus.running ? 'analisando' : metrics.basis, '#1d4ed8'],
           ['Demanda Contratada', 'N/D', 'não informada', '#9333ea'],
@@ -401,7 +408,7 @@ export default function EnergiaDemandaFP() {
           <div className="panel__head">Análise de Tarifas e Custos</div>
           <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 10, alignItems: 'center' }}>
             <ResponsiveContainer width="100%" height={150}><PieChart><Pie data={pie} dataKey="value" innerRadius={45} outerRadius={68}>{pie.map(p => <Cell key={p.name} fill={p.color} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
-            <table className="tbl"><tbody>{pie.map(p => <tr key={p.name}><td><span style={{ color: p.color }}>■</span> {p.name}</td><td>{metrics.billingReady ? `${p.value}%` : 'N/D'}</td><td>{fmtMoney(p.amount)}</td></tr>)}</tbody></table>
+            <table className="tbl"><tbody>{pie.map(p => <tr key={p.name}><td><span style={{ color: p.color }}>■</span> {p.name}</td><td>{Number.isFinite(p.amount) ? `${p.value}%` : 'N/D'}</td><td>{fmtMoney(p.amount)}</td></tr>)}</tbody></table>
           </div>
         </div>
       </div>

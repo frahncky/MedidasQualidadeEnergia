@@ -203,10 +203,15 @@ function buildSeries(period, analysis, stats) {
 }
 
 function buildKPI(analysis, stats) {
-  const cost = stats.billingReady ? stats.energyKWh * ENERGY_TARIFF_BRL_KWH : NaN
+  const cost = Number.isFinite(stats.energyKWh) ? stats.energyKWh * ENERGY_TARIFF_BRL_KWH : NaN
   const energyDetail = stats.hasMeasuredPower
     ? `janela medida: ${fmtDuration(stats.windowHours)}`
     : `estimada na amostra: ${fmtDuration(stats.windowHours)}`
+  const costDetail = stats.billingReady
+    ? 'tarifa sobre janela medida'
+    : stats.hasMeasuredPower
+      ? 'estimado na amostra curta'
+      : 'estimado por fasores'
   const d = {
     energy: fmtEnergy(stats.energyKWh),
     reactive: fmtReactiveEnergy(stats.reactiveKvarh),
@@ -225,7 +230,7 @@ function buildKPI(analysis, stats) {
     { name: 'THD-V Médio',     value: d.thdv,     detail: 'média da amostra', color: '#0284c7', bg: '#e0f2fe', icon: '~', tone: 'muted' },
     { name: 'THD-I Médio',     value: d.thdi,     detail: 'média da amostra', color: '#7c3aed', bg: '#ede9fe', icon: '≈', tone: 'muted' },
     { name: 'Eventos Detec.',  value: d.events,   detail: 'detectados na janela', color: '#dc2626', bg: '#fee2e2', icon: '⚠', tone: analysis.events.length ? 'warn' : 'ok' },
-    { name: 'Custo Estimado',  value: d.cost,     detail: stats.billingReady ? 'tarifa sobre janela medida' : 'sem base de faturamento', color: '#15803d', bg: '#dcfce7', icon: '$', tone: stats.billingReady ? 'ok' : 'warn' },
+    { name: 'Custo Estimado',  value: d.cost,     detail: costDetail, color: '#15803d', bg: '#dcfce7', icon: '$', tone: stats.billingReady ? 'ok' : 'warn' },
   ]
 }
 
