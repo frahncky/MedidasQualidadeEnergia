@@ -1,3 +1,5 @@
+import * as XLSX from 'xlsx'
+
 export function detectDelimiter(header) {
   const candidates = [',', ';', '\t']
   return candidates
@@ -61,7 +63,15 @@ export function formatBytes(bytes) {
 
 export function isCsvLike(file) {
   const name = file?.name?.toLowerCase() ?? ''
-  return name.endsWith('.csv') || file?.type === 'text/csv' || file?.type === 'application/vnd.ms-excel'
+  return name.endsWith('.csv') || file?.type === 'text/csv'
+}
+
+export function isSpreadsheetLike(file) {
+  const name = file?.name?.toLowerCase() ?? ''
+  return name.endsWith('.xlsx')
+    || name.endsWith('.xls')
+    || file?.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    || file?.type === 'application/vnd.ms-excel'
 }
 
 export function readFileText(file) {
@@ -71,6 +81,46 @@ export function readFileText(file) {
     reader.onerror = () => reject(new Error('Erro de leitura do arquivo'))
     reader.readAsText(file)
   })
+}
+
+export function readFileBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('Erro de leitura do arquivo'))
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+export function parseWorkbookBuffer(buffer, maxPreviewRows = 5000) {
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+  const firstSheetName = workbook.SheetNames[0]
+  const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : null
+  if (!sheet) throw new Error('Planilha XLSX sem abas legíveis')
+
+  const grid = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: '',
+    raw: false,
+    blankrows: false,
+    dateNF: 'yyyy-mm-dd hh:mm:ss',
+  })
+
+  if (grid.length < 2) throw new Error('Planilha XLSX sem linhas de dados')
+
+  const columns = grid[0].map((column, index) => String(column ?? '').trim() || `Coluna ${index + 1}`)
+  const rows = grid.slice(1)
+    .filter(cells => cells.some(cell => String(cell ?? '').trim() !== ''))
+    .map(cells => Object.fromEntries(columns.map((column, index) => [column, cells[index] ?? ''])))
+
+  return {
+    columns,
+    rows,
+    previewRows: rows.slice(0, maxPreviewRows),
+    totalRows: rows.length,
+    delimiter: 'xlsx',
+    sheetName: firstSheetName,
+  }
 }
 
 export function findByExtension(files, extensions) {

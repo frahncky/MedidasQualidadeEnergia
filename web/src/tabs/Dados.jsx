@@ -12,7 +12,10 @@ import {
   findByExtension,
   formatBytes,
   isCsvLike,
+  isSpreadsheetLike,
   parseCsvText,
+  parseWorkbookBuffer,
+  readFileBuffer,
   readFileText,
   suggestColumn,
 } from '../utils/dataImport'
@@ -140,6 +143,39 @@ export default function Dados() {
     setChecksRun(false)
     setParseError('')
     setFileMeta({ size: formatBytes(file.size), encoding: 'UTF-8' })
+
+    if (isSpreadsheetLike(file)) {
+      readFileBuffer(file)
+        .then(buffer => {
+          const parsed = parseWorkbookBuffer(buffer)
+          setParsedData({
+            columns: parsed.columns,
+            rows: parsed.previewRows,
+            totalRows: parsed.totalRows,
+            delimiter: parsed.delimiter,
+          })
+          setFileMeta({ size: formatBytes(file.size), encoding: 'XLSX' })
+          setImportedDataset({
+            fileName: file.name,
+            sourceType: 'Arquivo XLSX',
+            columns: parsed.columns,
+            rows: parsed.rows,
+            totalRows: parsed.totalRows,
+            delimiter: parsed.delimiter,
+            sheetName: parsed.sheetName,
+            importedAt: new Date().toISOString(),
+          })
+          setLoaded(true)
+          toast(`Planilha importada: ${parsed.totalRows.toLocaleString('pt-BR')} registros`, 'success')
+        })
+        .catch(error => {
+          setParseError(error.message || 'Falha ao ler planilha XLSX')
+          setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
+          toast('Não foi possível importar a planilha', 'error')
+        })
+        .finally(() => setLoading(false))
+      return
+    }
 
     if (!isCsvLike(file)) {
       setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
@@ -320,7 +356,7 @@ export default function Dados() {
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <div className="panel" style={{ flex: 1 }}>
           <div className="panel__head">Fontes de Dados
-            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => toast('Funcionalidade de adicionar fonte disponível na versão completa', 'info')}>+ Adicionar</button>
+            <button className="btn btn-subtle btn-sm" style={{ marginLeft: 'auto' }} onClick={() => toast('Funcionalidade de adicionar fonte disponível na versão completa', 'info')}>+ Adicionar</button>
           </div>
           <div className="panel__body scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
             {GROUPS.map(group => (
@@ -418,8 +454,8 @@ export default function Dados() {
               <select className="form-select" value={mappingTemplate} onChange={e => setMappingTemplate(e.target.value)} style={{ width: 220 }}>
                 {['Padrão - PQ e Energia', 'IEC 61850', 'COMTRADE', 'Personalizado'].map(o => <option key={o}>{o}</option>)}
               </select>
-              <button className="btn btn-ghost btn-sm" onClick={() => toast('Mapeamento carregado', 'success')}>Carregar</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => toast('Mapeamento salvo', 'success')}>Salvar</button>
+              <button className="btn btn-subtle btn-sm" onClick={() => toast('Mapeamento carregado', 'success')}>Carregar</button>
+              <button className="btn btn-subtle btn-sm" onClick={() => toast('Mapeamento salvo', 'success')}>Salvar</button>
             </div>
           </div>
           <div className="panel__body--np scroll-y" style={{ maxHeight: 305, overflow: 'auto' }}>

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as XLSX from 'xlsx'
 import {
   analyzePowerQuality,
   buildDemoPowerQualityDataset,
@@ -7,6 +8,7 @@ import {
   generateHarmonics,
 } from '../src/utils/powerQuality.js'
 import { parseComtradeFiles } from '../src/utils/comtrade.js'
+import { parseWorkbookBuffer } from '../src/utils/dataImport.js'
 
 test('synthetic harmonics preserve requested THD', () => {
   const harmonics = generateHarmonics(5, 100)
@@ -94,4 +96,23 @@ test('ASCII COMTRADE files are converted to a PQ dataset', () => {
   assert.equal(dataset.rows.length, 4)
   assert.equal(Math.round(dataset.rows[1].Va), 25)
   assert.ok(analysis.sampleCount >= 4)
+})
+
+test('XLSX workbook is converted to a PQ dataset preview', () => {
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['timestamp', 'Va', 'Vb', 'Vc', 'Ia', 'Ib', 'Ic', 'Freq_Hz', 'FP'],
+    ['2024-05-01 00:00:00', 220, 219, 221, 110, 111, 109, 60.01, 0.94],
+    ['2024-05-01 00:01:00', 221, 220, 222, 112, 111, 110, 60, 0.95],
+  ])
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Medicoes')
+
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+  const parsed = parseWorkbookBuffer(buffer)
+
+  assert.equal(parsed.sheetName, 'Medicoes')
+  assert.equal(parsed.totalRows, 2)
+  assert.deepEqual(parsed.columns, ['timestamp', 'Va', 'Vb', 'Vc', 'Ia', 'Ib', 'Ic', 'Freq_Hz', 'FP'])
+  assert.equal(parsed.rows[1].Va, '221')
+  assert.equal(parsed.previewRows.length, 2)
 })

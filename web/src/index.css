@@ -492,6 +492,7 @@ html, body, #root {
 }
 [data-theme="dark"] .info-note { background:#172554; border-color:#1d4ed8; color:#93c5fd; }
 
+
 /* ── Drop zone (file import) ── */
 .drop-zone {
   border: 1px dashed #93c5fd; border-radius: 8px; padding: 18px;
@@ -747,6 +748,12 @@ body, button, input, select, textarea,
   text-transform: uppercase;
 }
 
+.workspace-title__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .workspace-title h1 {
   display: flex;
   align-items: center;
@@ -755,6 +762,27 @@ body, button, input, select, textarea,
   font-size: 17px;
   line-height: 1.2;
   color: var(--c-heading);
+}
+
+.workspace-title__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.workspace-title__meta span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .3px;
 }
 
 .workspace-title p {
@@ -784,6 +812,7 @@ body, button, input, select, textarea,
   font-size: 11px;
   font-weight: 700;
 }
+
 
 .panel {
   border-radius: 8px;
@@ -816,6 +845,18 @@ body, button, input, select, textarea,
 .btn {
   border-radius: 7px;
   white-space: nowrap;
+}
+
+.btn-subtle {
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  color: var(--c-text-muted);
+}
+
+.btn-subtle:hover {
+  background: var(--c-surface);
+  border-color: var(--c-text-light);
+  color: var(--c-text);
 }
 
 .btn-ghost {
@@ -963,6 +1004,7 @@ body, button, input, select, textarea,
   }
 }
 
+
 @media (max-width: 1100px) {
   .header__brand {
     min-width: auto;
@@ -1022,6 +1064,11 @@ body, button, input, select, textarea,
   .workspace-title__metrics {
     display: none;
   }
+
+  .workspace-title__meta {
+    width: 100%;
+  }
+
 
   .kpi-row,
   .mini-kpi-row,

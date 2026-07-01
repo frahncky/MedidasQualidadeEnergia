@@ -24,6 +24,8 @@ const Dashboard = lazy(() => import('./tabs/Dashboard'))
 const Dados = lazy(() => import('./tabs/Dados'))
 const Medidas = lazy(() => import('./tabs/Medidas'))
 const Circuitos = lazy(() => import('./tabs/Circuitos'))
+const Simulacao = lazy(() => import('./tabs/Simulacao'))
+const Fasores = lazy(() => import('./tabs/Fasores'))
 const QualidadeEnergia = lazy(() => import('./tabs/QualidadeEnergia'))
 const EnergiaDemandaFP = lazy(() => import('./tabs/EnergiaDemandaFP'))
 const Metrologia = lazy(() => import('./tabs/Metrologia'))
@@ -34,62 +36,88 @@ const TABS = [
     id: 'dashboard',
     Icon: LayoutDashboard,
     label: 'Dashboard',
-    description: 'Indicadores, alarmes e visão operacional',
-    keywords: 'inicio indicadores alarmes kpi monitoramento',
+    area: 'Visão executiva',
+    description: 'Síntese técnica dos indicadores de energia e qualidade',
+    keywords: 'inicio indicadores alarmes kpi monitoramento resumo tecnico',
     Component: Dashboard,
   },
   {
     id: 'dados',
     Icon: Database,
     label: 'Dados',
-    description: 'Fontes, importação, validação e limpeza',
-    keywords: 'csv importar arquivo fonte limpeza qualidade',
+    area: 'Aquisição e preparo',
+    description: 'Importação, validação e preparação de bases de medição',
+    keywords: 'csv xlsx importar arquivo fonte limpeza qualidade preparo',
     Component: Dados,
   },
   {
     id: 'medidas',
     Icon: Gauge,
     label: 'Medidas',
-    description: 'Instrumentos, formas de onda e fasores',
-    keywords: 'instrumentos tensao corrente potencia calibracao',
+    area: 'Instrumentação',
+    description: 'Instrumentos, grandezas elétricas e formas de onda',
+    keywords: 'instrumentos tensao corrente potencia calibracao medicao',
     Component: Medidas,
   },
   {
     id: 'circuitos',
     Icon: CircuitBoard,
     label: 'Circuitos',
-    description: 'Editor, netlist e simulação didática',
-    keywords: 'editor circuito simulacao netlist rlc',
+    area: 'Modelagem didática',
+    description: 'Editor técnico-didático de montagem e análise de circuitos',
+    keywords: 'editor circuito simulacao netlist rlc montagem analise',
     Component: Circuitos,
+  },
+  {
+    id: 'simulacao',
+    Icon: CircuitBoard,
+    label: 'Simulação',
+    area: 'Estudo aplicado',
+    description: 'Estudos orientados com cargas CC, CA e circuitos RLC',
+    keywords: 'simulacao carga rlc cc ca ressonancia correcao fp estudo',
+    Component: Simulacao,
+  },
+  {
+    id: 'fasores',
+    Icon: BarChart3,
+    label: 'Fasores',
+    area: 'Análise trifásica',
+    description: 'Diagrama fasorial, sequência de fases e componentes simétricas',
+    keywords: 'fasores trifasico componentes simetricas sequencia angulos fortescue',
+    Component: Fasores,
   },
   {
     id: 'qualidade',
     Icon: Activity,
     label: 'Qualidade',
-    description: 'THD, flicker, eventos e conformidade',
-    keywords: 'qualidade energia thd flicker prodist ieee',
+    area: 'Conformidade elétrica',
+    description: 'THD, eventos, flicker e conformidade de qualidade de energia',
+    keywords: 'qualidade energia thd flicker prodist ieee conformidade',
     Component: QualidadeEnergia,
   },
   {
     id: 'energia',
     Icon: Zap,
-    label: 'Energia',
-    description: 'Demanda, fator de potência e custos',
-    keywords: 'energia demanda fp custo tarifa economia',
+    label: 'Energia e FP',
+    area: 'Desempenho energético',
+    description: 'Energia, demanda, fator de potência e custos elétricos',
+    keywords: 'energia demanda fp custo tarifa economia fator potencia',
     Component: EnergiaDemandaFP,
   },
   {
     id: 'metrologia',
     Icon: Ruler,
     label: 'Metrologia',
-    description: 'TC/TP, incerteza, calibração e segurança',
-    keywords: 'metrologia seguranca tctp incerteza calibracao',
+    area: 'Calibração e segurança',
+    description: 'TC/TP, incerteza de medição, calibração e segurança',
+    keywords: 'metrologia seguranca tctp incerteza calibracao rastreabilidade',
     Component: Metrologia,
   },
   {
     id: 'relatorios',
     Icon: FileText,
     label: 'Relatórios',
+    area: 'Documentação técnica',
     description: 'Modelos, prévia e exportações',
     keywords: 'relatorio exportar pdf docx html laudo',
     Component: Relatorios,
@@ -111,7 +139,7 @@ function buildCommands(setActive, toggleTheme, theme) {
       label: 'Importar dados',
       detail: 'Abrir a área de fontes e arquivos',
       Icon: Upload,
-      keywords: 'importar carregar csv xlsx dados arquivo',
+      keywords: 'importar carregar csv xlsx xls dados arquivo',
       run: () => setActive('dados'),
     },
     {
@@ -231,15 +259,19 @@ export default function App() {
             </nav>
 
             <div className="workspace-title">
-              <div>
+              <div className="workspace-title__copy">
                 <span className="workspace-title__eyebrow">Módulo ativo</span>
                 <h1><activeTab.Icon size={18} /> {activeTab.label}</h1>
+                <div className="workspace-title__meta">
+                  <span>{activeTab.area}</span>
+                  <span>{activeTab.id.toUpperCase()}</span>
+                </div>
               </div>
               <p>{activeTab.description}</p>
               <div className="workspace-title__metrics">
-                <span><Activity size={14} /> Aquisição online</span>
-                <span><BarChart3 size={14} /> 98,7% qualidade</span>
-                <span><Keyboard size={14} /> Navegação rápida</span>
+                <span><Activity size={14} /> Pronto para análise</span>
+                <span><BarChart3 size={14} /> Visão técnica consolidada</span>
+                <span><Keyboard size={14} /> Atalhos de navegação</span>
               </div>
             </div>
 

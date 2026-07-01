@@ -7,7 +7,6 @@ import { SEV_CLASS } from '../utils/powerQuality'
 import { useAppContext } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import { exportCSV } from '../utils/export'
-import Fasores from './Fasores'
 
 const PHASE_OPTIONS = ['Fase A', 'Fase B', 'Fase C', 'Geral']
 const PHASE_SERIES_KEY = { 'Fase A': 'Va', 'Fase B': 'Vb', 'Fase C': 'Vc', Geral: 'Vavg' }
@@ -56,7 +55,6 @@ export default function QualidadeEnergia({ onNavigate }) {
     analysisStatus,
   } = useAppContext()
   const toast = useToast()
-  const [sub, setSub] = useState('indicadores')
   const [fase, setFase] = useState('Fase A')
   const [loading, setLoading] = useState(false)
   const [disturbance, setDisturbance] = useState('afundamento')
@@ -178,17 +176,16 @@ export default function QualidadeEnergia({ onNavigate }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
       <div className="inner-nav">
-        <span className="inner-nav__label">Análise:</span>
-        <button className={`inner-nav-btn${sub === 'indicadores' ? ' active' : ''}`} onClick={() => setSub('indicadores')}>
+        <span className="inner-nav__label">Módulo:</span>
+        <button className="inner-nav-btn active">
           ≈ Indicadores &amp; Conformidade
         </button>
-        <button className={`inner-nav-btn${sub === 'fasores' ? ' active' : ''}`} onClick={() => setSub('fasores')}>
-          ⊙ Fasores &amp; Trifásico
+        <button className="inner-nav-btn" onClick={() => onNavigate?.('fasores')}>
+          ⊙ Ir para Fasores
         </button>
       </div>
 
-      {sub === 'fasores' ? <Fasores /> : (
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 1100, overflow: 'visible', position: 'relative' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 1100, overflow: 'visible', position: 'relative' }}>
           {loading && (
             <div className="loading-overlay" style={{ position: 'absolute' }}>
               <div className="loading-box">↻ Atualizando…</div>
@@ -386,7 +383,6 @@ export default function QualidadeEnergia({ onNavigate }) {
             </div>
           </div>
         </div>
-      )}
     </div>
   )
 }
