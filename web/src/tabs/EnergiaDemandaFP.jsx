@@ -1,52 +1,257 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
-import { energySeries } from '../utils/powerQuality'
 import { useAppContext } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 
-const daily = energySeries(31)
-const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'].map((m, i) => ({
-  mes: m,
-  atual: i < 5 ? 105 + i * 12 + (i % 2) * 10 : 0,
-  anterior: 92 + i * 3,
-  meta: 95 + i * 5,
-}))
-const load = Array.from({ length: 25 }, (_, i) => ({
-  h: `${String(i).padStart(2, '0')}:00`,
-  util: +(820 + Math.sin((i - 8) / 4) * 620 + (i > 7 && i < 20 ? 300 : 0)).toFixed(0),
-  sab: +(610 + Math.sin((i - 9) / 4) * 310 + (i > 8 && i < 18 ? 170 : 0)).toFixed(0),
-  dom: +(430 + Math.sin((i - 10) / 5) * 180 + (i > 9 && i < 17 ? 90 : 0)).toFixed(0),
-}))
-const pie = [
-  { name: 'Energia', value: 53.8, color: '#1d4ed8' },
-  { name: 'Demanda', value: 24.7, color: '#f59e0b' },
-  { name: 'Encargos', value: 12.6, color: '#ef4444' },
-  { name: 'Ultrapassagem', value: 5.1, color: '#9333ea' },
-  { name: 'Impostos', value: 3.8, color: '#64748b' },
-]
-const sectors = [
-  ['Produção', '45,21', '36,1%', 'R$ 28.321,45'],
-  ['Utilidades', '23,68', '18,9%', 'R$ 16.372,12'],
-  ['HVAC', '18,44', '14,7%', 'R$ 13.024,93'],
-  ['Iluminação', '12,31', '9,8%', 'R$ 8.653,32'],
-  ['Escritórios / TI', '9,79', '7,8%', 'R$ 6.705,34'],
-]
-
-const TARIFAS = ['Grupo A4 Verde', 'Grupo A4 Azul', 'Grupo B1 Residencial', 'Grupo A3 Verde']
+const TARIFAS = {
+  'Grupo A4 Verde': { energy: 0.69 },
+  'Grupo A4 Azul': { energy: 0.74 },
+  'Grupo B1 Residencial': { energy: 0.82 },
+  'Grupo A3 Verde': { energy: 0.66 },
+}
 const INSTALACOES = ['Subestação Principal', 'Laboratório LQE', 'Fábrica Norte']
+const MIN_BILLING_WINDOW_HOURS = 0.25
+const BANK_COST_BRL_PER_KVAR = 120
 
-/* Calculates capacitor bank size to correct FP from fpAtual to fpAlvo */
-function calcCapacitorBank(P_kW, fpAtual, fpAlvo) {
-  const tgAtual = Math.tan(Math.acos(fpAtual))
-  const tgAlvo = Math.tan(Math.acos(fpAlvo))
-  return +(P_kW * (tgAtual - tgAlvo)).toFixed(1)
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
 }
 
-export default function EnergiaDemandaFP({ onNavigate }) {
-  const { installation: instalacao, setInstallation: setInstalacao, dateFrom, setDateFrom, dateTo, setDateTo } = useAppContext()
+function fmt(value, digits = 2) {
+  return Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : 'N/D'
+}
+
+function fmtEnergy(kWh) {
+  if (!Number.isFinite(kWh)) return 'N/D'
+  const abs = Math.abs(kWh)
+  if (abs >= 1000) return `${fmt(kWh / 1000, 2)} MWh`
+  if (abs >= 1) return `${fmt(kWh, 1)} kWh`
+  return `${fmt(kWh * 1000, 0)} Wh`
+}
+
+function fmtPower(kW) {
+  if (!Number.isFinite(kW)) return 'N/D'
+  const abs = Math.abs(kW)
+  if (abs >= 1000) return `${fmt(kW / 1000, 3)} MW`
+  return `${fmt(kW, abs < 10 ? 1 : 0)} kW`
+}
+
+function fmtReactive(kvar) {
+  if (!Number.isFinite(kvar)) return 'N/D'
+  const abs = Math.abs(kvar)
+  if (abs >= 1000) return `${fmt(kvar / 1000, 3)} MVAr`
+  return `${fmt(kvar, abs < 10 ? 1 : 0)} kVAr`
+}
+
+function fmtReactiveEnergy(kvarh) {
+  if (!Number.isFinite(kvarh)) return 'N/D'
+  const abs = Math.abs(kvarh)
+  if (abs >= 1000) return `${fmt(kvarh / 1000, 2)} MVArh`
+  if (abs >= 1) return `${fmt(kvarh, 1)} kVArh`
+  return `${fmt(kvarh * 1000, 0)} VArh`
+}
+
+function fmtMoney(value) {
+  if (!Number.isFinite(value)) return 'N/D'
+  const digits = Math.abs(value) < 100 ? 2 : 0
+  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
+}
+
+function fmtDuration(hours) {
+  if (!Number.isFinite(hours) || hours <= 0) return 'sem duração'
+  if (hours < 1 / 60) return `${fmt(hours * 3600, 1)} s`
+  if (hours < 1) return `${fmt(hours * 60, 1)} min`
+  if (hours < 48) return `${fmt(hours, 2)} h`
+  return `${fmt(hours / 24, 1)} dias`
+}
+
+function avg(values) {
+  const clean = values.filter(Number.isFinite)
+  return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : NaN
+}
+
+function bucket(values, count) {
+  if (!values.length) return []
+  const size = Math.max(1, Math.ceil(values.length / count))
+  return Array.from({ length: Math.ceil(values.length / size) }, (_, index) => values.slice(index * size, (index + 1) * size))
+}
+
+function spanHours(points) {
+  const timestamps = points.map(point => point?.timestamp).filter(Number.isFinite)
+  if (timestamps.length >= 2) return Math.max(0, (Math.max(...timestamps) - Math.min(...timestamps)) / 3600000)
+  const durationMs = points.reduce((sum, point) => sum + (Number.isFinite(point?.durationMs) ? point.durationMs : 0), 0)
+  return Math.max(0, durationMs / 3600000)
+}
+
+function integrate(points, key, fallbackHours = 0) {
+  if (!points.length) return NaN
+  if (points.length === 1) return Math.abs(points[0][key] || 0) * fallbackHours
+
+  let total = 0
+  for (let i = 1; i < points.length; i += 1) {
+    const previous = points[i - 1]
+    const current = points[i]
+    const dtHours = Math.max(0, ((current.timestamp ?? 0) - (previous.timestamp ?? 0)) / 3600000)
+    const averagePower = (Math.abs(previous[key] || 0) + Math.abs(current[key] || 0)) / 2
+    total += averagePower * dtHours
+  }
+  return total || Math.abs(avg(points.map(point => point[key]))) * fallbackHours
+}
+
+function labelFromTimestamp(timestamp, windowHours, index) {
+  if (!Number.isFinite(timestamp)) return `A${index + 1}`
+  const date = new Date(timestamp)
+  if (windowHours < 1) return date.toLocaleTimeString('pt-BR', { minute: '2-digit', second: '2-digit' })
+  if (windowHours < 24) return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+function estimatePowerFromRms(point, analysis) {
+  const voltage = point.Vavg || avg([point.Va, point.Vb, point.Vc].filter(value => value > 0))
+  const current = point.Iavg || avg([point.Ia, point.Ib, point.Ic].filter(value => value > 0))
+  const fp = Math.abs(point.fp || analysis.summary?.fpAvg || analysis.power?.fp || 0.92)
+  const estimated = voltage > 0 && current > 0 ? (3 * voltage * current * fp) / 1000 : Math.abs(analysis.power?.pKw || 0)
+  return Number.isFinite(estimated) ? estimated : 0
+}
+
+function calcCapacitorBank(pKw, fpAtual, fpAlvo) {
+  if (!Number.isFinite(pKw) || pKw <= 0) return NaN
+  const current = clamp(Math.abs(fpAtual || 0), 0.01, 0.999)
+  const target = clamp(Math.abs(fpAlvo || 0.98), 0.01, 0.999)
+  if (current >= target) return 0
+  const tgAtual = Math.tan(Math.acos(current))
+  const tgAlvo = Math.tan(Math.acos(target))
+  return +(pKw * (tgAtual - tgAlvo)).toFixed(1)
+}
+
+function buildEnergyBars(rows, qRows, windowHours) {
+  const groups = bucket(rows, 31)
+  let cumulative = 0
+  return groups.map((group, index) => {
+    const groupHours = spanHours(group) || (groups.length ? windowHours / groups.length : 0)
+    const energy = integrate(group, 'p', groupHours)
+    cumulative += Number.isFinite(energy) ? energy : 0
+    const start = group[0]?.timestamp
+    const matchingQ = qRows.filter(row => row.timestamp >= group[0]?.timestamp && row.timestamp <= group[group.length - 1]?.timestamp)
+    const reactive = Number.isFinite(start) && matchingQ.length ? integrate(matchingQ, 'q', groupHours) : NaN
+    return {
+      label: labelFromTimestamp(start, windowHours, index),
+      energy: +(energy || 0).toFixed(energy < 1 ? 3 : 1),
+      reactive: +(reactive || 0).toFixed(reactive < 1 ? 3 : 1),
+      cumulative: +cumulative.toFixed(cumulative < 1 ? 3 : 1),
+    }
+  })
+}
+
+function buildLoadProfile(analysis, pRows) {
+  const source = pRows.length
+    ? pRows.map(row => ({ timestamp: row.timestamp, demand: Math.abs(row.p), fp: row.fp }))
+    : (analysis.rmsSeries ?? []).map(row => ({ timestamp: row.timestamp, demand: estimatePowerFromRms(row, analysis), fp: row.fp }))
+  return bucket(source, 24).map((group, index) => ({
+    h: labelFromTimestamp(group[0]?.timestamp, spanHours(source), index),
+    demanda: +avg(group.map(row => row.demand)).toFixed(1),
+    fp: +(avg(group.map(row => row.fp)) || analysis.summary?.fpAvg || 0).toFixed(3),
+  }))
+}
+
+function buildDemandCurve(loadProfile) {
+  return loadProfile
+    .map(point => point.demanda)
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)
+    .map((demand, index, arr) => ({
+      x: arr.length > 1 ? +((index / (arr.length - 1)) * 100).toFixed(1) : 0,
+      demand: +demand.toFixed(1),
+    }))
+}
+
+function buildMetrics(analysis, tariffName, fpTarget) {
+  const tariff = TARIFAS[tariffName] ?? TARIFAS['Grupo A4 Verde']
+  const rows = analysis.normalizedRows ?? []
+  const pRows = rows.filter(row => Number.isFinite(row?.p) && Number.isFinite(row?.timestamp))
+  const qRows = rows.filter(row => Number.isFinite(row?.q) && Number.isFinite(row?.timestamp))
+  const windowHours = spanHours(rows.length ? rows : (analysis.rmsSeries ?? []))
+  const hasMeasuredPower = pRows.length >= 2
+  const billingReady = hasMeasuredPower && windowHours >= MIN_BILLING_WINDOW_HOURS
+  const energyKWh = hasMeasuredPower ? integrate(pRows, 'p', windowHours) : NaN
+  const reactiveKvarh = qRows.length >= 2 ? integrate(qRows, 'q', windowHours) : NaN
+  const avgPowerKw = hasMeasuredPower ? Math.abs(avg(pRows.map(row => row.p))) : Math.abs(analysis.power?.pKw || NaN)
+  const maxDemandKw = hasMeasuredPower ? Math.max(...pRows.map(row => Math.abs(row.p)).filter(Number.isFinite), 0) : NaN
+  const fpAvg = clamp(analysis.summary?.fpAvg || analysis.power?.fp || 0, 0, 1)
+  const cost = billingReady ? energyKWh * tariff.energy : NaN
+  const qCap = billingReady ? calcCapacitorBank(avgPowerKw, fpAvg, fpTarget) : NaN
+  const capacitorCost = Number.isFinite(qCap) ? qCap * BANK_COST_BRL_PER_KVAR : NaN
+  const savings = billingReady && fpAvg < fpTarget ? cost * clamp((fpTarget - fpAvg) * 1.8, 0, 0.18) : NaN
+  const energyBars = billingReady ? buildEnergyBars(pRows, qRows, windowHours) : []
+  const loadProfile = buildLoadProfile(analysis, pRows)
+  const demandCurve = buildDemandCurve(loadProfile)
+
+  return {
+    tariff,
+    windowHours,
+    hasMeasuredPower,
+    billingReady,
+    energyKWh,
+    reactiveKvarh,
+    avgPowerKw,
+    maxDemandKw,
+    fpAvg,
+    cost,
+    qCap,
+    capacitorCost,
+    savings,
+    energyBars,
+    loadProfile,
+    demandCurve,
+    basis: billingReady ? 'janela medida' : hasMeasuredPower ? 'amostra curta' : 'sem P_kW medido',
+  }
+}
+
+function placeholderRows() {
+  return [{ label: 'N/D', energy: 0, reactive: 0, cumulative: 0 }]
+}
+
+function costPie(metrics) {
+  if (!metrics.billingReady) return [{ name: 'Sem base', value: 1, color: '#cbd5e1', amount: NaN }]
+  return [
+    { name: 'Energia ativa', value: 100, color: '#1d4ed8', amount: metrics.cost },
+  ]
+}
+
+function scenarioRows(metrics, fpAtual, fpTarget) {
+  const partialTarget = Math.max(fpAtual, Math.min(fpTarget, 0.95))
+  const fullTarget = Math.max(fpTarget, 0.99)
+  const rows = [
+    ['Atual', fpAtual, metrics.cost, NaN, NaN, NaN],
+    ['Correção parcial', partialTarget, metrics.cost - (metrics.savings * 0.45), calcCapacitorBank(metrics.avgPowerKw, fpAtual, partialTarget), metrics.savings * 0.45, NaN],
+    ['Correção padrão', fpTarget, metrics.cost - metrics.savings, metrics.qCap, metrics.savings, metrics.capacitorCost / metrics.savings],
+    ['Correção 0,99', fullTarget, metrics.cost - (metrics.savings * 1.08), calcCapacitorBank(metrics.avgPowerKw, fpAtual, fullTarget), metrics.savings * 1.08, metrics.capacitorCost / (metrics.savings * 1.08)],
+  ]
+
+  return rows.map(([name, fp, cost, qCap, savings, payback]) => [
+    name,
+    Number.isFinite(fp) ? fmt(fp, 3) : 'N/D',
+    fmtMoney(cost),
+    fmtReactive(qCap),
+    fmtMoney(savings),
+    Number.isFinite(payback) && payback > 0 ? `${Math.ceil(payback)} meses` : 'N/D',
+  ])
+}
+
+function balanceRows(metrics) {
+  return [
+    ['Energia ativa medida', fmtEnergy(metrics.energyKWh), metrics.billingReady ? '100,0%' : 'N/D', metrics.basis],
+    ['Energia reativa medida', fmtReactiveEnergy(metrics.reactiveKvarh), 'N/D', metrics.hasMeasuredPower ? 'coluna Q_kVAr' : 'N/D'],
+    ['Demanda máxima', fmtPower(metrics.maxDemandKw), 'N/D', metrics.hasMeasuredPower ? 'P_kW medido' : 'N/D'],
+    ['Duração da janela', fmtDuration(metrics.windowHours), 'N/D', metrics.billingReady ? 'apta' : 'insuficiente'],
+  ]
+}
+
+export default function EnergiaDemandaFP() {
+  const { installation: instalacao, setInstallation: setInstalacao, dateFrom, setDateFrom, dateTo, setDateTo, pqAnalysis, analysisStatus } = useAppContext()
   const toast = useToast()
   const [tarifa, setTarifa] = useState('Grupo A4 Verde')
   const [fpAlvo, setFpAlvo] = useState('0,98')
@@ -55,24 +260,31 @@ export default function EnergiaDemandaFP({ onNavigate }) {
   const [showCompare, setShowCompare] = useState(false)
   const [calculating, setCalculating] = useState(false)
 
-  const P_kW = 1200
-  const fpAtual = 0.92
-  const fpTarget = parseFloat(fpAlvo.replace(',', '.')) || 0.98
-  const Qc = calcCapacitorBank(P_kW, fpAtual, fpTarget)
-  const economiaMulta = 7845
-  const economiaCapacitor = Math.round(Qc * 4.2)
+  const fpTarget = clamp(parseFloat(fpAlvo.replace(',', '.')) || 0.98, 0.8, 0.999)
+  const metrics = useMemo(() => buildMetrics(pqAnalysis, tarifa, fpTarget), [pqAnalysis, tarifa, fpTarget])
+  const chartData = metrics.energyBars.length ? metrics.energyBars : placeholderRows()
+  const pie = costPie(metrics)
+  const sectorRows = [['Sem medição setorial importada', 'N/D', 'N/D', 'N/D']]
+  const compareRows = scenarioRows(metrics, metrics.fpAvg, fpTarget)
 
   function handleCalcular() {
-    setShowEconomy(false); setCalculating(true)
-    setTimeout(() => { setCalculating(false); setShowEconomy(true); toast('Análise de economia calculada', 'success') }, 600)
+    setShowEconomy(false)
+    setCalculating(true)
+    setTimeout(() => {
+      setCalculating(false)
+      setShowEconomy(true)
+      toast(metrics.billingReady ? 'Análise de economia calculada' : 'Base insuficiente para economia mensal', metrics.billingReady ? 'success' : 'warning')
+    }, 500)
   }
 
   function handleSimular() {
-    setShowSim(true); toast('Simulação de FP carregada', 'info')
+    setShowSim(true)
+    toast(metrics.billingReady ? 'Simulação de FP carregada' : 'Simulação limitada por falta de P_kW medido', metrics.billingReady ? 'info' : 'warning')
   }
 
   function handleComparar() {
-    setShowCompare(true); toast('Comparativo de cenários gerado', 'info')
+    setShowCompare(true)
+    toast(metrics.billingReady ? 'Comparativo de cenários gerado' : 'Comparativo sem valores financeiros', metrics.billingReady ? 'info' : 'warning')
   }
 
   return (
@@ -88,28 +300,30 @@ export default function EnergiaDemandaFP({ onNavigate }) {
         </select>
         <label>Tarifa</label>
         <select value={tarifa} onChange={e => setTarifa(e.target.value)}>
-          {TARIFAS.map(o => <option key={o}>{o}</option>)}
+          {Object.keys(TARIFAS).map(o => <option key={o}>{o}</option>)}
         </select>
+        <span style={{ fontSize: 11, fontWeight: 700, color: metrics.billingReady ? '#16a34a' : '#d97706', whiteSpace: 'nowrap' }}>
+          Base: {metrics.basis} · {fmtDuration(metrics.windowHours)}
+        </span>
         <div className="spacer" />
         <button className="btn btn-primary" onClick={handleCalcular} disabled={calculating}>
-          {calculating ? '⏳…' : 'Calcular Economia'}
+          {calculating ? '...' : 'Calcular Economia'}
         </button>
         <button className="btn btn-ghost" onClick={handleSimular}>Simular Correção de FP</button>
         <button className="btn btn-ghost" onClick={handleComparar}>Comparar Cenários</button>
       </div>
 
-      {/* Economia Result Panel */}
       {showEconomy && (
         <div className="result-panel result-panel--success" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-          <button onClick={() => setShowEconomy(false)} className="btn-close-panel">✕</button>
+          <button onClick={() => setShowEconomy(false)} className="btn-close-panel">x</button>
           <div>
             <div style={{ fontWeight: 800, fontSize: 13 }}>Análise de Economia — {instalacao}</div>
-            <div style={{ fontSize: 11, marginTop: 4 }}>FP atual: <b>{fpAtual}</b> → FP alvo: <b>{fpAlvo}</b></div>
+            <div style={{ fontSize: 11, marginTop: 4 }}>FP atual: <b>{fmt(metrics.fpAvg, 3)}</b> → FP alvo: <b>{fmt(fpTarget, 3)}</b></div>
           </div>
           {[
-            ['Economia Multa ANEEL', `R$ ${economiaMulta.toLocaleString('pt-BR')}/mês`, '#16a34a'],
-            ['Banco de Capacitores', `${Qc} kVar`, 'var(--c-primary)'],
-            ['Redução de Perdas', `R$ ${(Qc * 1.8).toFixed(0)}/mês`, 'var(--c-success)'],
+            ['Economia Potencial', fmtMoney(metrics.savings), '#16a34a'],
+            ['Banco de Capacitores', fmtReactive(metrics.qCap), 'var(--c-primary)'],
+            ['Custo da Janela', fmtMoney(metrics.cost), 'var(--c-success)'],
           ].map(([label, val, color]) => (
             <div key={label} className="result-card result-card--success">
               <div style={{ fontSize: 10, color: 'var(--c-text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
@@ -119,10 +333,9 @@ export default function EnergiaDemandaFP({ onNavigate }) {
         </div>
       )}
 
-      {/* FP Simulation Panel */}
       {showSim && (
         <div className="result-panel result-panel--info">
-          <button onClick={() => setShowSim(false)} className="btn-close-panel">✕</button>
+          <button onClick={() => setShowSim(false)} className="btn-close-panel">x</button>
           <div style={{ fontWeight: 800, marginBottom: 12 }}>Simulação de Correção de Fator de Potência</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
             <div>
@@ -131,34 +344,28 @@ export default function EnergiaDemandaFP({ onNavigate }) {
             </div>
             <div className="result-card result-card--info" style={{ padding: '10px 14px' }}>
               <div style={{ fontSize: 10, color: 'var(--c-text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Banco de Capacitores Necessário</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--c-primary)', marginTop: 4 }}>{Qc} kVar</div>
-              <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>Potência ativa: {P_kW} kW</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--c-primary)', marginTop: 4 }}>{fmtReactive(metrics.qCap)}</div>
+              <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>Potência ativa base: {fmtPower(metrics.avgPowerKw)}</div>
             </div>
             <div className="result-card result-card--info" style={{ padding: '10px 14px' }}>
               <div style={{ fontSize: 10, color: 'var(--c-text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Custo Estimado do Banco</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#9333ea', marginTop: 4 }}>R$ {economiaCapacitor.toLocaleString('pt-BR')}</div>
-              <div style={{ fontSize: 11, color: 'var(--c-success)' }}>Payback: ~{Math.ceil(economiaCapacitor / economiaMulta)} meses</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#9333ea', marginTop: 4 }}>{fmtMoney(metrics.capacitorCost)}</div>
+              <div style={{ fontSize: 11, color: 'var(--c-success)' }}>Payback: {Number.isFinite(metrics.capacitorCost / metrics.savings) ? `${Math.ceil(metrics.capacitorCost / metrics.savings)} meses` : 'N/D'}</div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Scenarios comparison Panel */}
       {showCompare && (
         <div className="result-panel result-panel--purple">
-          <button onClick={() => setShowCompare(false)} className="btn-close-panel">✕</button>
+          <button onClick={() => setShowCompare(false)} className="btn-close-panel">x</button>
           <div style={{ fontWeight: 800, marginBottom: 12 }}>Comparação de Cenários de Eficiência</div>
           <table className="tbl">
-            <thead><tr><th>Cenário</th><th>FP</th><th>Custo / mês</th><th>Banco kVar</th><th>Economia / mês</th><th>Payback</th></tr></thead>
+            <thead><tr><th>Cenário</th><th>FP</th><th>Custo da janela</th><th>Banco kVAr</th><th>Economia</th><th>Payback</th></tr></thead>
             <tbody>
-              {[
-                ['Atual (sem correção)', '0,92', 'R$ 86.742', '—', '—', '—'],
-                ['Correção parcial', '0,95', 'R$ 84.210', `${calcCapacitorBank(P_kW, 0.92, 0.95)} kVar`, 'R$ 2.532', '~14 meses'],
-                ['Correção padrão', '0,98', 'R$ 79.875', `${Qc} kVar`, 'R$ 6.867', '~10 meses'],
-                ['Correção total', '0,99', 'R$ 78.100', `${calcCapacitorBank(P_kW, 0.92, 0.99)} kVar`, 'R$ 8.642', '~12 meses'],
-              ].map((r, i) => (
-                <tr key={i} className={i === 2 ? 'tbl-row-highlight' : undefined}>
-                  {r.map((c, j) => <td key={j} style={j === 0 ? { fontWeight: 700 } : j === 4 ? { color: 'var(--c-success)', fontWeight: 700 } : {}}>{c}</td>)}
+              {compareRows.map((row, i) => (
+                <tr key={row[0]} className={i === 2 ? 'tbl-row-highlight' : undefined}>
+                  {row.map((cell, j) => <td key={j} style={j === 0 ? { fontWeight: 700 } : j === 4 ? { color: 'var(--c-success)', fontWeight: 700 } : {}}>{cell}</td>)}
                 </tr>
               ))}
             </tbody>
@@ -168,33 +375,33 @@ export default function EnergiaDemandaFP({ onNavigate }) {
 
       <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(7,1fr)' }}>
         {[
-          ['Energia Ativa Consumida', '125,43 MWh', '+8,7%', '#16a34a'],
-          ['Custo Total no Período', 'R$ 86.742,31', '+9,2%', '#16a34a'],
-          ['Demanda Maxima', '1.786 kW', '+4,3%', '#ea580c'],
-          ['Fator de Potência Médio', '0,92 ind.', '+0,03', '#1d4ed8'],
-          ['Demanda Contratada', '2.000 kW', 'Utilização: 89%', '#9333ea'],
-          ['Custo Médio de Energia', 'R$ 0,693/kWh', '+0,05', '#d97706'],
-          ['Economia Estimada', 'R$ 7.845,12', 'com FP p/ 0,98', '#16a34a'],
+          ['Energia Ativa Consumida', fmtEnergy(metrics.energyKWh), metrics.billingReady ? `janela: ${fmtDuration(metrics.windowHours)}` : 'sem base de faturamento', '#16a34a'],
+          ['Custo Total no Período', fmtMoney(metrics.cost), metrics.billingReady ? `tarifa: ${fmt(metrics.tariff.energy, 3)}/kWh` : 'N/D', '#16a34a'],
+          ['Demanda Máxima', fmtPower(metrics.maxDemandKw), metrics.hasMeasuredPower ? 'P_kW medido' : 'N/D', '#ea580c'],
+          ['Fator de Potência Médio', `${fmt(metrics.fpAvg, 3)} ind.`, analysisStatus.running ? 'analisando' : metrics.basis, '#1d4ed8'],
+          ['Demanda Contratada', 'N/D', 'não informada', '#9333ea'],
+          ['Custo Médio de Energia', `R$ ${fmt(metrics.tariff.energy, 3)}/kWh`, tarifa, '#d97706'],
+          ['Economia Estimada', fmtMoney(metrics.savings), metrics.billingReady ? `FP alvo ${fmt(fpTarget, 3)}` : 'sem base mensal', '#16a34a'],
         ].map(([name, value, delta, color]) => (
           <div key={name} className="kpi-card">
             <div className="kpi-card__icon" style={{ background: color }}>{name[0]}</div>
-            <div className="kpi-card__info"><div className="kpi-card__name">{name}</div><div className="kpi-card__value">{value}</div><div className="kpi-card__delta">{delta}</div></div>
+            <div className="kpi-card__info"><div className="kpi-card__name">{name}</div><div className="kpi-card__value">{value}</div><div className="kpi-card__delta" style={{ color: value === 'N/D' ? '#d97706' : undefined }}>{delta}</div></div>
           </div>
         ))}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 1fr 0.9fr', gap: 10, height: 320 }}>
-        <ChartPanel title="Consumo de Energia (kWh)">
-          <BarChart data={daily}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="label" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip /><Legend /><Bar dataKey="energy" fill="#1d4ed8" name="Ativa" /><Bar dataKey="fp" fill="#f97316" name="Reativa (esc.)" /></BarChart>
+        <ChartPanel title="Energia da Janela (kWh)">
+          <BarChart data={chartData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="label" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip /><Legend /><Bar dataKey="energy" fill="#1d4ed8" name="Ativa" /><Bar dataKey="reactive" fill="#f97316" name="Reativa" /></BarChart>
         </ChartPanel>
-        <ChartPanel title="Perfil de Carga Médio (kW)">
-          <LineChart data={load}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="h" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip /><Legend /><Line dataKey="util" stroke="#1d4ed8" dot={false} name="Dias uteis" /><Line dataKey="sab" stroke="#f97316" dot={false} name="Sabado" /><Line dataKey="dom" stroke="#16a34a" dot={false} name="Domingo" /></LineChart>
+        <ChartPanel title={metrics.hasMeasuredPower ? 'Perfil de Carga Medido (kW)' : 'Perfil de Carga Estimado (kW)'}>
+          <LineChart data={metrics.loadProfile}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="h" tick={{ fontSize: 10 }} /><YAxis yAxisId="kw" tick={{ fontSize: 10 }} /><YAxis yAxisId="fp" orientation="right" domain={[0, 1.05]} tick={{ fontSize: 10 }} /><Tooltip /><Legend /><Line yAxisId="kw" dataKey="demanda" stroke="#1d4ed8" dot={false} name="Potência" /><Line yAxisId="fp" dataKey="fp" stroke="#16a34a" dot={false} name="FP" /></LineChart>
         </ChartPanel>
         <div className="panel">
           <div className="panel__head">Análise de Tarifas e Custos</div>
           <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 10, alignItems: 'center' }}>
             <ResponsiveContainer width="100%" height={150}><PieChart><Pie data={pie} dataKey="value" innerRadius={45} outerRadius={68}>{pie.map(p => <Cell key={p.name} fill={p.color} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
-            <table className="tbl"><tbody>{pie.map(p => <tr key={p.name}><td><span style={{ color: p.color }}>■</span> {p.name}</td><td>{p.value}%</td><td>R$ {(86742 * p.value / 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td></tr>)}</tbody></table>
+            <table className="tbl"><tbody>{pie.map(p => <tr key={p.name}><td><span style={{ color: p.color }}>■</span> {p.name}</td><td>{metrics.billingReady ? `${p.value}%` : 'N/D'}</td><td>{fmtMoney(p.amount)}</td></tr>)}</tbody></table>
           </div>
         </div>
       </div>
@@ -204,37 +411,40 @@ export default function EnergiaDemandaFP({ onNavigate }) {
           <div className="panel__head">Monitoramento do Fator de Potência</div>
           <div className="panel__body" style={{ textAlign: 'center' }}>
             <div style={{ height: 120, borderRadius: '130px 130px 0 0', background: 'conic-gradient(from 270deg, #ef4444 0 45deg, #f59e0b 45deg 95deg, #16a34a 95deg 180deg, transparent 180deg)' }} />
-            <div style={{ fontSize: 30, fontWeight: 800 }}>0,92 <span style={{ fontSize: 13 }}>ind.</span></div>
-            <div style={{ color: '#64748b' }}>Médio no período</div>
+            <div style={{ fontSize: 30, fontWeight: 800 }}>{fmt(metrics.fpAvg, 3)} <span style={{ fontSize: 13 }}>ind.</span></div>
+            <div style={{ color: '#64748b' }}>{metrics.basis}</div>
           </div>
         </div>
-        <ChartPanel title="Curva de Demanda (kW) - Ordenada">
-          <LineChart data={daily.map((d, i) => ({ x: i * 3.3, demand: Math.max(80, 2100 - i * 58) }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="x" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip /><Line dataKey="demand" stroke="#1d4ed8" dot={false} /></LineChart>
+        <ChartPanel title="Curva de Demanda Ordenada">
+          <LineChart data={metrics.demandCurve}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="x" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip /><Line dataKey="demand" stroke="#1d4ed8" dot={false} name="kW" /></LineChart>
         </ChartPanel>
         <div className="panel">
           <div className="panel__head">Fluxo de Energia</div>
           <div className="panel__body">
             {[
-              ['Cargas Produtivas', 60.7, '#1d4ed8'], ['Cargas Auxiliares', 25.4, '#f97316'], ['Perdas Elétricas', 7.9, '#f59e0b'], ['Outros', 6.0, '#9333ea'],
-            ].map(([n, p, c]) => <div key={n} style={{ marginBottom: 13 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><b>{n}</b><span>{p}%</span></div><div className="progress-track" style={{ height: 10 }}><div style={{ width: `${p}%`, height: '100%', background: c, borderRadius: 8 }} /></div></div>)}
+              ['Energia ativa', metrics.billingReady ? 100 : 0, '#1d4ed8'],
+              ['Cargas setoriais', 0, '#f97316'],
+              ['Perdas elétricas', 0, '#f59e0b'],
+              ['Outros', 0, '#9333ea'],
+            ].map(([n, p, c]) => <div key={n} style={{ marginBottom: 13 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><b>{n}</b><span>{metrics.billingReady ? `${p}%` : 'N/D'}</span></div><div className="progress-track" style={{ height: 10 }}><div style={{ width: `${p}%`, height: '100%', background: c, borderRadius: 8 }} /></div></div>)}
           </div>
         </div>
-        <ChartPanel title="Previsão de Consumo e Custo">
-          <BarChart data={months.slice(4)}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="mes" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip /><Bar dataKey="atual" fill="#1d4ed8" /><Bar dataKey="meta" fill="#86efac" /></BarChart>
+        <ChartPanel title="Energia Acumulada">
+          <BarChart data={chartData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="label" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip /><Bar dataKey="cumulative" fill="#1d4ed8" name="kWh acumulado" /></BarChart>
         </ChartPanel>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, height: 250 }}>
-        <DataTable title="Balanço de Energia (MWh)" rows={[['Energia Ativa Importada', '125,43', '100,0%', '+8,7%'], ['Cargas Produtivas', '76,15', '60,7%', '+8,5%'], ['Cargas Auxiliares', '31,82', '25,4%', '+8,9%'], ['Perdas Elétricas', '9,86', '7,9%', '+14,5%']]} />
-        <DataTable title="Contribuição por Setor / Circuito" rows={sectors} />
-        <DataTable title="Comparativo Mensal (MWh)" rows={months.slice(0, 6).map(m => [m.mes, m.atual.toFixed(2), m.anterior.toFixed(2), '+8,7%'])} />
+        <DataTable title="Balanço de Energia" rows={balanceRows(metrics)} />
+        <DataTable title="Contribuição por Setor / Circuito" rows={sectorRows} />
+        <DataTable title="Comparativo de Cenários" rows={compareRows.slice(0, 4)} />
       </div>
     </div>
   )
 }
 
 function ChartPanel({ title, children }) {
-  return <div className="panel"><div className="panel__head">{title}</div><div style={{ height: 'calc(100% - 38px)', padding: 8 }}><ResponsiveContainer>{children}</ResponsiveContainer></div></div>
+  return <div className="panel"><div className="panel__head">{title}</div><div style={{ height: 'calc(100% - 38px)', padding: 8 }}><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div></div>
 }
 
 function DataTable({ title, rows }) {
