@@ -46,6 +46,22 @@ test('aggregated CSV-style rows are analyzed without waveform data', () => {
   assert.equal(analysis.summary.transientCount, 0)
 })
 
+test('numeric timestamp column is not mapped as active power', () => {
+  const analysis = analyzePowerQuality({
+    fileName: 'timestamp_unix_ms.csv',
+    sourceType: 'Arquivo CSV',
+    columns: ['timestamp', 'Va', 'Vb', 'Vc', 'Ia', 'Ib', 'Ic', 'Freq_Hz', 'FP'],
+    rows: [
+      { timestamp: 1717176002000, Va: 220, Vb: 219, Vc: 221, Ia: 110, Ib: 111, Ic: 109, Freq_Hz: 60.01, FP: 0.94 },
+      { timestamp: 1717176062000, Va: 221, Vb: 220, Vc: 222, Ia: 112, Ib: 111, Ic: 110, Freq_Hz: 60.00, FP: 0.95 },
+      { timestamp: 1717176122000, Va: 219, Vb: 218, Vc: 220, Ia: 109, Ib: 108, Ic: 107, Freq_Hz: 59.99, FP: 0.94 },
+    ],
+  })
+
+  assert.ok(analysis.normalizedRows.every(row => row.p === null))
+  assert.ok(analysis.power.pKw < 100)
+})
+
 test('ASCII COMTRADE files are converted to a PQ dataset', () => {
   const cfgText = [
     'SE TESTE,DEV01,2013',

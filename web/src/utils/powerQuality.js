@@ -147,7 +147,7 @@ function findColumn(columns, key) {
   const normalized = columns.map(column => ({ column, normalized: normalizeLabel(column) }))
   const aliases = COLUMN_ALIASES[key] ?? []
   return normalized.find(item => aliases.includes(item.normalized))?.column
-    ?? normalized.find(item => aliases.some(alias => item.normalized.includes(alias)))?.column
+    ?? normalized.find(item => aliases.some(alias => alias.length > 2 && item.normalized.includes(alias)))?.column
     ?? null
 }
 
