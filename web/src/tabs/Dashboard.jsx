@@ -43,6 +43,8 @@ const INST_INFO_MAP = {
 
 const ENERGY_TARIFF_BRL_KWH = 0.69
 const BILLING_WINDOW_MIN_HOURS = 0.25
+const ENERGY_ESTIMATE_MIN_WINDOW_HOURS = 1 / 60
+const REACTIVE_ESTIMATE_MIN_WINDOW_HOURS = 1 / 60
 
 function fmt(value, digits = 2) {
   return Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : '-'
@@ -123,8 +125,9 @@ function estimateActivePowerKw(point, analysis) {
   return Number.isFinite(estimated) && estimated > 0 ? estimated : fallback
 }
 
-function integrateEnergy(points, key, fallbackHours = 0) {
+function integrateEnergy(points, key, fallbackHours = 0, forceFallbackHours = false) {
   if (!points.length) return 0
+  if (forceFallbackHours && fallbackHours > 0) return Math.abs(avg(points.map(point => point[key]))) * fallbackHours
   if (points.length === 1) return Math.abs(points[0]?.[key] || 0) * fallbackHours
 
   let total = 0
@@ -141,15 +144,18 @@ function integrateEnergy(points, key, fallbackHours = 0) {
 function buildWindowStats(analysis) {
   const pRows = measuredRows(analysis, 'p')
   const qRows = measuredRows(analysis, 'q')
-  const windowHours = spanHours(analysis.normalizedRows ?? analysis.rmsSeries ?? [])
+  const measuredWindowHours = spanHours(analysis.normalizedRows ?? analysis.rmsSeries ?? [])
+  const sourceWindowHours = Number.isFinite(analysis.sourceWindowHours) ? analysis.sourceWindowHours : 0
+  const useSourceWindow = sourceWindowHours > measuredWindowHours
+  const windowHours = useSourceWindow ? sourceWindowHours : measuredWindowHours
   const hasMeasuredPower = pRows.length > 0
   const measuredEnergy = pRows.length >= 2
-    ? integrateEnergy(pRows, 'p')
+    ? integrateEnergy(pRows, 'p', windowHours, useSourceWindow)
     : Math.abs(avg(pRows.map(row => row.p))) * windowHours
   const estimatedPower = estimateActivePowerKw(null, analysis)
   const energyKWh = hasMeasuredPower ? measuredEnergy : estimatedPower * windowHours
   const reactiveKvarh = qRows.length >= 2
-    ? integrateEnergy(qRows, 'q')
+    ? integrateEnergy(qRows, 'q', windowHours, useSourceWindow)
     : Math.abs(analysis.power?.qKvar || 0) * windowHours
   const maxDemandKw = hasMeasuredPower
     ? Math.max(...pRows.map(row => Math.abs(row.p)).filter(Number.isFinite), 0)
@@ -165,6 +171,7 @@ function buildWindowStats(analysis) {
     maxDemandKw,
     apparentKva,
     estimatedPower,
+    useSourceWindow,
   }
 }
 
@@ -190,7 +197,7 @@ function buildSeries(period, analysis, stats) {
   return groups.map((group, index) => {
     const bucketHours = spanHours(group) || fallbackBucketHours
     const demand = Math.abs(avg(group.map(row => row.p).filter(Number.isFinite)))
-    const energy = integrateEnergy(group, 'p', bucketHours)
+    const energy = integrateEnergy(group, 'p', bucketHours, stats.useSourceWindow)
     cumulativeEnergy += energy
 
     return {
@@ -203,34 +210,40 @@ function buildSeries(period, analysis, stats) {
 }
 
 function buildKPI(analysis, stats) {
-  const cost = Number.isFinite(stats.energyKWh) ? stats.energyKWh * ENERGY_TARIFF_BRL_KWH : NaN
-  const energyDetail = stats.hasMeasuredPower
-    ? `janela medida: ${fmtDuration(stats.windowHours)}`
-    : `estimada na amostra: ${fmtDuration(stats.windowHours)}`
+  const energyEligible = stats.hasMeasuredPower || stats.windowHours >= ENERGY_ESTIMATE_MIN_WINDOW_HOURS
+  const reactiveEligible = stats.hasMeasuredPower && stats.windowHours >= REACTIVE_ESTIMATE_MIN_WINDOW_HOURS
+  const demandEligible = stats.hasMeasuredPower && stats.windowHours >= ENERGY_ESTIMATE_MIN_WINDOW_HOURS
+  const costEligible = stats.billingReady
+  const cost = costEligible && Number.isFinite(stats.energyKWh) ? stats.energyKWh * ENERGY_TARIFF_BRL_KWH : NaN
+  const energyDetail = energyEligible
+    ? stats.hasMeasuredPower
+      ? `janela medida: ${fmtDuration(stats.windowHours)}`
+      : `estimada na amostra: ${fmtDuration(stats.windowHours)}`
+    : 'requer janela representativa'
   const costDetail = stats.billingReady
     ? 'tarifa sobre janela medida'
-    : stats.hasMeasuredPower
-      ? 'estimado na amostra curta'
-      : 'estimado por fasores'
+    : 'requer janela tarifária mínima'
   const d = {
-    energy: fmtEnergy(stats.energyKWh),
-    reactive: fmtReactiveEnergy(stats.reactiveKvarh),
-    demand: stats.hasMeasuredPower ? fmtPower(stats.maxDemandKw) : fmtApparent(stats.apparentKva),
+    energy: energyEligible ? fmtEnergy(stats.energyKWh) : 'N/D',
+    reactive: reactiveEligible ? fmtReactiveEnergy(stats.reactiveKvarh) : 'N/D',
+    demand: demandEligible ? fmtPower(stats.maxDemandKw) : 'N/D',
+    apparent: fmtApparent(stats.apparentKva),
     fp: `${fmt(analysis.summary.fpAvg, 3)} ind.`,
     thdv: `${fmt(analysis.summary.thdVAvg, 2)} %`,
     thdi: `${fmt(analysis.summary.thdIAvg, 2)} %`,
     events: String(analysis.events.length),
-    cost: fmtMoney(cost),
+    cost: costEligible ? fmtMoney(cost) : 'N/D',
   }
   return [
-    { name: 'Energia Ativa',   value: d.energy,  detail: energyDetail, color: '#16a34a', bg: '#dcfce7', icon: '⚡', tone: stats.hasMeasuredPower ? 'ok' : 'warn' },
-    { name: 'Energia Reativa', value: d.reactive, detail: `janela: ${fmtDuration(stats.windowHours)}`, color: '#9333ea', bg: '#f3e8ff', icon: 'φ', tone: 'muted' },
-    { name: stats.hasMeasuredPower ? 'Demanda Máxima' : 'Potência Aparente', value: d.demand, detail: stats.hasMeasuredPower ? 'P_kW medido' : 'estimada por fasores', color: '#ea580c', bg: '#ffedd5', icon: '◎', tone: stats.hasMeasuredPower ? 'ok' : 'warn' },
+    { name: 'Energia Ativa',   value: d.energy,  detail: energyDetail, color: '#16a34a', bg: '#dcfce7', icon: '⚡', tone: energyEligible ? (stats.hasMeasuredPower ? 'ok' : 'warn') : 'muted' },
+    { name: 'Energia Reativa', value: d.reactive, detail: reactiveEligible ? `janela: ${fmtDuration(stats.windowHours)}` : 'requer coluna Q_kVAr e janela mínima', color: '#9333ea', bg: '#f3e8ff', icon: 'φ', tone: reactiveEligible ? 'muted' : 'muted' },
+    { name: 'Demanda Máxima',  value: d.demand, detail: demandEligible ? 'P_kW medido' : 'requer histórico medido de potência', color: '#ea580c', bg: '#ffedd5', icon: '◎', tone: demandEligible ? 'ok' : 'muted' },
+    { name: 'Potência Aparente', value: d.apparent, detail: 'estimativa fasorial instantânea', color: '#b45309', bg: '#ffedd5', icon: 'S', tone: stats.hasMeasuredPower ? 'muted' : 'warn' },
     { name: 'FP Médio',        value: d.fp,        detail: 'média da amostra', color: '#1d4ed8', bg: '#dbeafe', icon: '◯', tone: 'muted' },
     { name: 'THD-V Médio',     value: d.thdv,     detail: 'média da amostra', color: '#0284c7', bg: '#e0f2fe', icon: '~', tone: 'muted' },
     { name: 'THD-I Médio',     value: d.thdi,     detail: 'média da amostra', color: '#7c3aed', bg: '#ede9fe', icon: '≈', tone: 'muted' },
-    { name: 'Eventos Detec.',  value: d.events,   detail: 'detectados na janela', color: '#dc2626', bg: '#fee2e2', icon: '⚠', tone: analysis.events.length ? 'warn' : 'ok' },
-    { name: 'Custo Estimado',  value: d.cost,     detail: costDetail, color: '#15803d', bg: '#dcfce7', icon: '$', tone: stats.billingReady ? 'ok' : 'warn' },
+    { name: 'Eventos Detec.',  value: d.events,   detail: stats.windowHours > 0 ? 'detectados na janela' : 'sem janela válida', color: '#dc2626', bg: '#fee2e2', icon: '⚠', tone: analysis.events.length ? 'warn' : 'ok' },
+    { name: 'Custo Estimado',  value: d.cost,     detail: costDetail, color: '#15803d', bg: '#dcfce7', icon: '$', tone: stats.billingReady ? 'ok' : 'muted' },
   ]
 }
 

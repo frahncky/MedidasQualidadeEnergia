@@ -881,6 +881,8 @@ function buildDefaultRows() {
     const ia = iRms * Math.SQRT2 * (Math.sin(angle - 0.43) + currentHarmonic(angle))
     const ib = iRms * Math.SQRT2 * 0.96 * (Math.sin(angle - 2 * Math.PI / 3 - 0.47) + currentHarmonic(angle - 2 * Math.PI / 3))
     const ic = iRms * Math.SQRT2 * 1.04 * (Math.sin(angle + 2 * Math.PI / 3 - 0.39) + currentHarmonic(angle + 2 * Math.PI / 3))
+    const pKw = 27.8 + 1.6 * Math.sin(2 * Math.PI * 0.18 * t) + 0.7 * Math.sin(2 * Math.PI * 0.42 * t)
+    const qKvar = 11.6 + 0.8 * Math.cos(2 * Math.PI * 0.15 * t) + 0.4 * Math.sin(2 * Math.PI * 0.31 * t)
     rows.push({
       timestamp,
       Va: toFixedNumber(va, 5),
@@ -891,6 +893,8 @@ function buildDefaultRows() {
       Ic: toFixedNumber(ic, 5),
       Freq_Hz: toFixedNumber(DEFAULT_FREQ + 0.025 * Math.sin(2 * Math.PI * 0.4 * t), 4),
       FP: 0.914,
+      P_kW: toFixedNumber(pKw, 4),
+      Q_kVAr: toFixedNumber(qKvar, 4),
     })
   }
   return rows
@@ -951,6 +955,7 @@ export function buildDemoPowerQualityDataset() {
   return {
     fileName: 'demo_qe_calculado.csv',
     sourceType: 'Demonstração calculada',
+    windowHours: 0.5,
     rows: buildDefaultRows(),
     importedAt: new Date().toISOString(),
   }
@@ -1010,6 +1015,7 @@ export function normalizePowerQualityRows(dataset) {
     map,
     sourceName: dataset?.fileName ?? 'demo_qe_calculado.csv',
     sourceType: dataset?.sourceType ?? (dataset?.rows?.length ? 'Arquivo importado' : 'Demonstração calculada'),
+    sourceWindowHours: Number.isFinite(dataset?.windowHours) ? dataset.windowHours : null,
   }
 }
 
@@ -1133,6 +1139,7 @@ export function analyzePowerQuality(dataset = null) {
   return {
     sourceName: normalized.sourceName,
     sourceType: normalized.sourceType,
+    sourceWindowHours: normalized.sourceWindowHours,
     imported: Boolean(dataset?.rows?.length),
     sampleCount: rows.length,
     sampleRate: summary.sampleRate,

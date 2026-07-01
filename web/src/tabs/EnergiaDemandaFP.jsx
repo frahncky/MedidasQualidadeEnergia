@@ -14,6 +14,7 @@ const TARIFAS = {
 }
 const INSTALACOES = ['Subestação Principal', 'Laboratório LQE', 'Fábrica Norte']
 const MIN_BILLING_WINDOW_HOURS = 0.25
+const MIN_ESTIMATED_ENERGY_WINDOW_HOURS = 1 / 60
 const BANK_COST_BRL_PER_KVAR = 120
 
 function clamp(value, min, max) {
@@ -86,8 +87,9 @@ function spanHours(points) {
   return Math.max(0, durationMs / 3600000)
 }
 
-function integrate(points, key, fallbackHours = 0) {
+function integrate(points, key, fallbackHours = 0, forceFallbackHours = false) {
   if (!points.length) return NaN
+  if (forceFallbackHours && fallbackHours > 0) return Math.abs(avg(points.map(point => point[key]))) * fallbackHours
   if (points.length === 1) return Math.abs(points[0][key] || 0) * fallbackHours
 
   let total = 0
@@ -127,16 +129,16 @@ function calcCapacitorBank(pKw, fpAtual, fpAlvo) {
   return +(pKw * (tgAtual - tgAlvo)).toFixed(1)
 }
 
-function buildEnergyBars(rows, qRows, windowHours) {
+function buildEnergyBars(rows, qRows, windowHours, forceFallbackHours = false) {
   const groups = bucket(rows, 31)
   let cumulative = 0
   return groups.map((group, index) => {
     const groupHours = spanHours(group) || (groups.length ? windowHours / groups.length : 0)
-    const energy = integrate(group, 'p', groupHours)
+    const energy = integrate(group, 'p', groupHours, forceFallbackHours)
     cumulative += Number.isFinite(energy) ? energy : 0
     const start = group[0]?.timestamp
     const matchingQ = qRows.filter(row => row.timestamp >= group[0]?.timestamp && row.timestamp <= group[group.length - 1]?.timestamp)
-    const reactive = Number.isFinite(start) && matchingQ.length ? integrate(matchingQ, 'q', groupHours) : NaN
+    const reactive = Number.isFinite(start) && matchingQ.length ? integrate(matchingQ, 'q', groupHours, forceFallbackHours) : NaN
     return {
       label: labelFromTimestamp(start, windowHours, index),
       energy: +(energy || 0).toFixed(energy < 1 ? 3 : 1),
@@ -173,7 +175,10 @@ function buildMetrics(analysis, tariffName, fpTarget) {
   const rows = analysis.normalizedRows ?? []
   const pRows = rows.filter(row => Number.isFinite(row?.p) && Number.isFinite(row?.timestamp))
   const qRows = rows.filter(row => Number.isFinite(row?.q) && Number.isFinite(row?.timestamp))
-  const windowHours = spanHours(rows.length ? rows : (analysis.rmsSeries ?? []))
+  const measuredWindowHours = spanHours(rows.length ? rows : (analysis.rmsSeries ?? []))
+  const sourceWindowHours = Number.isFinite(analysis.sourceWindowHours) ? analysis.sourceWindowHours : 0
+  const useSourceWindow = sourceWindowHours > measuredWindowHours
+  const windowHours = useSourceWindow ? sourceWindowHours : measuredWindowHours
   const hasMeasuredPower = pRows.length >= 2
   const estimatedRows = hasMeasuredPower ? [] : (analysis.rmsSeries ?? []).map(row => ({
     timestamp: row.timestamp,
@@ -181,17 +186,17 @@ function buildMetrics(analysis, tariffName, fpTarget) {
     fp: row.fp,
   })).filter(row => Number.isFinite(row.timestamp) && Number.isFinite(row.p))
   const billingReady = hasMeasuredPower && windowHours >= MIN_BILLING_WINDOW_HOURS
-  const hasEstimatedPower = !hasMeasuredPower && estimatedRows.length >= 2 && windowHours > 0
-  const energyKWh = hasMeasuredPower ? integrate(pRows, 'p', windowHours) : hasEstimatedPower ? integrate(estimatedRows, 'p', windowHours) : NaN
-  const reactiveKvarh = qRows.length >= 2 ? integrate(qRows, 'q', windowHours) : NaN
+  const hasEstimatedPower = !hasMeasuredPower && estimatedRows.length >= 2 && windowHours >= MIN_ESTIMATED_ENERGY_WINDOW_HOURS
+  const energyKWh = hasMeasuredPower ? integrate(pRows, 'p', windowHours, useSourceWindow) : hasEstimatedPower ? integrate(estimatedRows, 'p', windowHours, useSourceWindow) : NaN
+  const reactiveKvarh = qRows.length >= 2 && windowHours >= MIN_ESTIMATED_ENERGY_WINDOW_HOURS ? integrate(qRows, 'q', windowHours, useSourceWindow) : NaN
   const avgPowerKw = hasMeasuredPower ? Math.abs(avg(pRows.map(row => row.p))) : Math.abs(analysis.power?.pKw || NaN)
-  const maxDemandKw = hasMeasuredPower ? Math.max(...pRows.map(row => Math.abs(row.p)).filter(Number.isFinite), 0) : NaN
+  const maxDemandKw = hasMeasuredPower && windowHours >= MIN_ESTIMATED_ENERGY_WINDOW_HOURS ? Math.max(...pRows.map(row => Math.abs(row.p)).filter(Number.isFinite), 0) : NaN
   const fpAvg = clamp(analysis.summary?.fpAvg || analysis.power?.fp || 0, 0, 1)
-  const cost = Number.isFinite(energyKWh) ? energyKWh * tariff.energy : NaN
+  const cost = billingReady && Number.isFinite(energyKWh) ? energyKWh * tariff.energy : NaN
   const qCap = billingReady ? calcCapacitorBank(avgPowerKw, fpAvg, fpTarget) : NaN
   const capacitorCost = Number.isFinite(qCap) ? qCap * BANK_COST_BRL_PER_KVAR : NaN
   const savings = billingReady && fpAvg < fpTarget ? cost * clamp((fpTarget - fpAvg) * 1.8, 0, 0.18) : NaN
-  const energyBars = billingReady ? buildEnergyBars(pRows, qRows, windowHours) : []
+  const energyBars = billingReady ? buildEnergyBars(pRows, qRows, windowHours, useSourceWindow) : []
   const loadProfile = buildLoadProfile(analysis, pRows)
   const demandCurve = buildDemandCurve(loadProfile)
 
@@ -213,7 +218,8 @@ function buildMetrics(analysis, tariffName, fpTarget) {
     energyBars,
     loadProfile,
     demandCurve,
-    basis: billingReady ? 'janela medida' : hasMeasuredPower ? 'amostra curta' : hasEstimatedPower ? 'estimado por fasores' : 'sem base',
+    useSourceWindow,
+    basis: billingReady ? 'janela medida' : hasMeasuredPower ? 'amostra curta' : hasEstimatedPower ? 'estimado em janela curta' : 'sem base',
   }
 }
 
@@ -380,7 +386,7 @@ export default function EnergiaDemandaFP() {
         </div>
       )}
 
-      <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(7,1fr)' }}>
+      <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
         {[
           ['Energia Ativa', fmtEnergy(metrics.energyKWh), metrics.billingReady ? `janela: ${fmtDuration(metrics.windowHours)}` : metrics.basis, '#16a34a'],
           ['Custo Estimado', fmtMoney(metrics.cost), Number.isFinite(metrics.cost) ? `${metrics.basis} · R$ ${fmt(metrics.tariff.energy, 3)}/kWh` : 'N/D', '#16a34a'],

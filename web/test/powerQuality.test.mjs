@@ -19,8 +19,11 @@ test('demo dataset produces advanced PQ indicators', () => {
   const analysis = analyzePowerQuality(buildDemoPowerQualityDataset())
 
   assert.ok(analysis.sampleCount > 1000)
+  assert.equal(analysis.sourceWindowHours, 0.5)
   assert.ok(analysis.summary.thdVAvg > 0)
   assert.ok(analysis.summary.thdIAvg > 0)
+  assert.ok(analysis.normalizedRows.some(row => Number.isFinite(row.p)))
+  assert.ok(analysis.normalizedRows.some(row => Number.isFinite(row.q)))
   assert.ok(analysis.summary.interharmonicVMax >= 0)
   assert.ok(analysis.measurement.windows.length > 0)
   assert.ok(analysis.measurement.classAReady)
