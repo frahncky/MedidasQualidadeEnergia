@@ -2,11 +2,20 @@ import { useMemo, useRef, useState } from 'react'
 import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
+import { DadosInfoPanel, DadosMiniChart } from '../components/DadosPanels'
 import { useToast } from '../components/Toast'
 import { exportCSV } from '../utils/export'
 import { useAppContext } from '../context/AppContext'
 import { buildDemoPowerQualityDataset } from '../utils/powerQuality'
 import { parseComtradeFiles } from '../utils/comtrade'
+import {
+  findByExtension,
+  formatBytes,
+  isCsvLike,
+  parseCsvText,
+  readFileText,
+  suggestColumn,
+} from '../utils/dataImport'
 
 const SOURCES_LIST = [
   { name: 'PQA-5000 #12345', group: 'Aquisições Locais',              status: 'Online',  color: '#16a34a' },
@@ -89,98 +98,9 @@ const PREVIEW_ROWS = Array.from({ length: 20 }, (_, i) => ({
   FP: +(0.92 + previewNoise(i)*0.04).toFixed(3),
 }))
 
-function detectDelimiter(header) {
-  const candidates = [',', ';', '\t']
-  return candidates
-    .map(delimiter => ({ delimiter, count: header.split(delimiter).length - 1 }))
-    .sort((a, b) => b.count - a.count)[0]?.delimiter ?? ','
-}
-
-function splitDelimitedLine(line, delimiter) {
-  const cells = []
-  let current = ''
-  let quoted = false
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i]
-    const next = line[i + 1]
-    if (char === '"' && quoted && next === '"') {
-      current += '"'
-      i += 1
-    } else if (char === '"') {
-      quoted = !quoted
-    } else if (char === delimiter && !quoted) {
-      cells.push(current.trim())
-      current = ''
-    } else {
-      current += char
-    }
-  }
-  cells.push(current.trim())
-  return cells
-}
-
-function parseCsvText(text, maxPreviewRows = 5000) {
-  const normalized = String(text ?? '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
-  const lines = normalized.split('\n').filter(line => line.trim().length > 0)
-  if (lines.length < 2) throw new Error('Arquivo CSV sem linhas de dados')
-  const delimiter = detectDelimiter(lines[0])
-  const columns = splitDelimitedLine(lines[0], delimiter).map((column, index) => column || `Coluna ${index + 1}`)
-  const rows = lines.slice(1, maxPreviewRows + 1).map(line => {
-    const cells = splitDelimitedLine(line, delimiter)
-    return Object.fromEntries(columns.map((column, index) => [column, cells[index] ?? '']))
-  })
-  return { columns, rows, totalRows: lines.length - 1, delimiter }
-}
-
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '—'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let size = bytes
-  let unit = 0
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024
-    unit += 1
-  }
-  return `${size.toLocaleString('pt-BR', { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`
-}
-
-function isCsvLike(file) {
-  const name = file?.name?.toLowerCase() ?? ''
-  return name.endsWith('.csv') || file?.type === 'text/csv' || file?.type === 'application/vnd.ms-excel'
-}
-
-function readFileText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = () => reject(new Error('Erro de leitura do arquivo'))
-    reader.readAsText(file)
-  })
-}
-
-function findByExtension(files, extensions) {
-  return files.find(file => extensions.some(ext => file.name.toLowerCase().endsWith(ext)))
-}
-
-function suggestColumn(field, fallback, columns) {
-  if (!columns.length) return fallback
-  const aliases = {
-    Timestamp: ['timestamp', 'datahora', 'data_hora', 'datetime', 'time'],
-    Va: ['va', 'va_kv', 'v_a', 'tensao_a'],
-    Vb: ['vb', 'vb_kv', 'v_b', 'tensao_b'],
-    Vc: ['vc', 'vc_kv', 'v_c', 'tensao_c'],
-    Ia: ['ia', 'ia_a', 'i_a', 'corrente_a'],
-    Ib: ['ib', 'ib_a', 'i_b', 'corrente_b'],
-    Ic: ['ic', 'ic_a', 'i_c', 'corrente_c'],
-    Frequência: ['frequencia', 'freq', 'freq_hz', 'frequency'],
-    P: ['p', 'p_kw', 'potencia_ativa'],
-    Q: ['q', 'q_kvar', 'potencia_reativa'],
-  }[field] ?? [fallback]
-  return columns.find(column => aliases.includes(column.toLowerCase().replace(/[^a-z0-9_]/g, ''))) ?? columns[0]
-}
 export default function Dados() {
   const toast = useToast()
-  const { setImportedDataset, pqAnalysis, analysisStatus } = useAppContext()
+  const { importedDataset, setImportedDataset, pqAnalysis, analysisStatus } = useAppContext()
   const [format, setFormat] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -235,7 +155,12 @@ export default function Dados() {
     reader.onload = () => {
       try {
         const parsed = parseCsvText(reader.result)
-        setParsedData(parsed)
+        setParsedData({
+          columns: parsed.columns,
+          rows: parsed.previewRows,
+          totalRows: parsed.totalRows,
+          delimiter: parsed.delimiter,
+        })
         setImportedDataset({
           fileName: file.name,
           sourceType: 'Arquivo CSV',
@@ -359,7 +284,7 @@ export default function Dados() {
   const recordsLabel = hasParsedData ? parsedData.totalRows.toLocaleString('pt-BR') : '864.000'
   const columnsLabel = hasParsedData ? parsedData.columns.length.toLocaleString('pt-BR') : '10'
   const delimiterLabel = hasParsedData ? (parsedData.delimiter === '\t' ? 'Tab' : parsedData.delimiter) : 'Detectado'
-  const cleanExportRows = hasParsedData ? parsedData.rows : PREVIEW_ROWS
+  const cleanExportRows = importedDataset?.rows?.length ? importedDataset.rows : hasParsedData ? parsedData.rows : PREVIEW_ROWS
   const chartData = useMemo(() => {
     if (!hasParsedData) return WAVE
     const columns = parsedData.columns
@@ -557,9 +482,9 @@ export default function Dados() {
         {/* Mini charts */}
         {loaded && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, height: 170 }}>
-            <MiniChart title="Tensões" data={chartData} keys={['va', 'vb', 'vc']} colors={['#1d4ed8', '#16a34a', '#dc2626']} />
-            <MiniChart title="Correntes" data={chartData} keys={['ia', 'ib', 'ic']} colors={['#9333ea', '#0284c7', '#ea580c']} />
-            <MiniChart title="Frequência (Hz)" data={chartData} keys={['f']} colors={['#059669']} />
+            <DadosMiniChart title="Tensões" data={chartData} keys={['va', 'vb', 'vc']} colors={['#1d4ed8', '#16a34a', '#dc2626']} />
+            <DadosMiniChart title="Correntes" data={chartData} keys={['ia', 'ib', 'ic']} colors={['#9333ea', '#0284c7', '#ea580c']} />
+            <DadosMiniChart title="Frequência (Hz)" data={chartData} keys={['f']} colors={['#059669']} />
           </div>
         )}
 
@@ -572,7 +497,7 @@ export default function Dados() {
 
       {/* Right sidebar */}
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
-        <InfoPanel title="Metadados do Arquivo" rows={[
+        <DadosInfoPanel title="Metadados do Arquivo" rows={[
           ['Arquivo', loaded ? fileName : '—'],
           ['Origem', hasParsedData ? 'Arquivo local' : 'Local'],
           ['Tamanho', loaded ? (fileMeta.size || '128,4 MB') : '—'],
@@ -608,19 +533,19 @@ export default function Dados() {
           </div>
         </div>
 
-        <InfoPanel title="Frequência de Amostragem" rows={[
+        <DadosInfoPanel title="Frequência de Amostragem" rows={[
           ['Detectada', loaded ? `${pqAnalysis.sampleRate.toLocaleString('pt-BR')} amostras/s` : '—'],
           ['Nominal', `${pqAnalysis.nominalFrequency.toLocaleString('pt-BR')} Hz`], ['Tolerância', '1,0%'], ['Método', 'Auto'],
         ]} />
 
-        <InfoPanel title="Motor de Análise" rows={[
+        <DadosInfoPanel title="Motor de Análise" rows={[
           ['Estado', analysisStatus.running ? 'Analisando…' : 'Pronto'],
           ['Execução', analysisStatus.source === 'worker' ? 'Web Worker' : 'Thread principal'],
           ['Tempo', analysisStatus.elapsedMs ? `${analysisStatus.elapsedMs} ms` : '—'],
           ['Erro', analysisStatus.error || '—'],
         ]} />
 
-        <InfoPanel title="Filtros" rows={[
+        <DadosInfoPanel title="Filtros" rows={[
           ['Passa-baixa', 'Ativo – 2.500 Hz'], ['Passa-alta', '0,50 Hz'],
           ['Notch 60 Hz', 'Ativo'], ['Tipo', 'IIR Butterworth'],
         ]} />
@@ -645,37 +570,3 @@ export default function Dados() {
   )
 }
 
-function MiniChart({ title, data, keys, colors }) {
-  return (
-    <div className="panel">
-      <div className="panel__head">{title}</div>
-      <div style={{ height: 125, padding: 8 }}>
-        <ResponsiveContainer>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="t" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} width={38} />
-            <Tooltip />
-            {keys.map((key, i) => <Line key={key} dataKey={key} stroke={colors[i]} dot={false} strokeWidth={1.8} />)}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
-}
-
-function InfoPanel({ title, rows }) {
-  return (
-    <div className="panel">
-      <div className="panel__head">{title}</div>
-      <div className="panel__body">
-        {rows.map(([k, v]) => (
-          <div key={k} style={{ display: 'flex', gap: 10, marginBottom: 7, fontSize: 12 }}>
-            <span style={{ color: '#64748b', width: 92 }}>{k}</span>
-            <b style={{ flex: 1 }}>{v}</b>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}

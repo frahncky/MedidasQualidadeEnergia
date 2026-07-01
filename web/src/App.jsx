@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -19,14 +19,15 @@ import {
 } from 'lucide-react'
 import { AppProvider } from './context/AppContext'
 import { ToastProvider } from './components/Toast'
-import Dashboard from './tabs/Dashboard'
-import Dados from './tabs/Dados'
-import Medidas from './tabs/Medidas'
-import Circuitos from './tabs/Circuitos'
-import QualidadeEnergia from './tabs/QualidadeEnergia'
-import EnergiaDemandaFP from './tabs/EnergiaDemandaFP'
-import Metrologia from './tabs/Metrologia'
-import Relatorios from './tabs/Relatorios'
+
+const Dashboard = lazy(() => import('./tabs/Dashboard'))
+const Dados = lazy(() => import('./tabs/Dados'))
+const Medidas = lazy(() => import('./tabs/Medidas'))
+const Circuitos = lazy(() => import('./tabs/Circuitos'))
+const QualidadeEnergia = lazy(() => import('./tabs/QualidadeEnergia'))
+const EnergiaDemandaFP = lazy(() => import('./tabs/EnergiaDemandaFP'))
+const Metrologia = lazy(() => import('./tabs/Metrologia'))
+const Relatorios = lazy(() => import('./tabs/Relatorios'))
 
 const TABS = [
   {
@@ -243,7 +244,9 @@ export default function App() {
             </div>
 
             <div key={active} className="tab-content tab-enter">
-              <ActiveComponent onNavigate={setActive} />
+              <Suspense fallback={<div className="panel" style={{ padding: 24, textAlign: 'center' }}>Carregando módulo…</div>}>
+                <ActiveComponent onNavigate={setActive} />
+              </Suspense>
             </div>
           </div>
 
