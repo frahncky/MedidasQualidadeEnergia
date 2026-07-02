@@ -69,10 +69,10 @@ const TABS = [
   {
     id: 'circuitos',
     Icon: CircuitBoard,
-    label: 'Circuitos',
-    area: 'Modelagem didática',
-    description: 'Editor técnico-didático de montagem e análise de circuitos',
-    keywords: 'editor circuito simulacao netlist rlc montagem analise',
+    label: 'Editor',
+    area: 'Montagem de circuitos',
+    description: 'Montagem esquemática e análise de circuitos CC, CA e trifásicos',
+    keywords: 'editor circuito netlist rlc montagem analise esquema unifilar',
     Component: Circuitos,
   },
   {
@@ -80,8 +80,8 @@ const TABS = [
     Icon: CircuitBoard,
     label: 'Simulação',
     area: 'Estudo aplicado',
-    description: 'Estudos orientados com cargas CC, CA e circuitos RLC',
-    keywords: 'simulacao carga rlc cc ca ressonancia correcao fp estudo',
+    description: 'Estudos guiados de parâmetros, cargas, fasores, potência e FP',
+    keywords: 'simulacao carga rlc cc ca ressonancia correcao fp estudo guiado',
     Component: Simulacao,
   },
   {
@@ -129,6 +129,18 @@ const TABS = [
     keywords: 'relatorio exportar pdf docx html laudo',
     Component: Relatorios,
   },
+]
+
+const GUIDED_FLOW = [
+  { id: 'dados', label: 'Dados', detail: 'importar e validar' },
+  { id: 'medidas', label: 'Medidas', detail: 'instrumentar' },
+  { id: 'circuitos', label: 'Editor', detail: 'montar esquema' },
+  { id: 'simulacao', label: 'Simulação', detail: 'variar parâmetros' },
+  { id: 'fasores', label: 'Fasores', detail: 'ler fases' },
+  { id: 'qualidade', label: 'Qualidade', detail: 'ver limites' },
+  { id: 'energia', label: 'Energia', detail: 'avaliar FP' },
+  { id: 'metrologia', label: 'Metrologia', detail: 'incerteza' },
+  { id: 'relatorios', label: 'Relatório', detail: 'documentar' },
 ]
 
 function getPreferredTheme() {
@@ -234,6 +246,15 @@ function fmtCount(value) {
   return Number.isFinite(value) ? value.toLocaleString('pt-BR') : '-'
 }
 
+function sourceKind(analysis, hasImportedDataset) {
+  const type = String(analysis?.sourceType ?? '').toLowerCase()
+  if (type.includes('simula')) return 'Simulado'
+  if (!hasImportedDataset || type.includes('demonstra')) return 'Demo'
+  if (type.includes('comtrade')) return 'COMTRADE'
+  if (type.includes('refer')) return 'Base real'
+  return 'Importado'
+}
+
 function SettingsPanel({ open, onClose, theme, setTheme, activeTab, setActive, onClearPreferences }) {
   const {
     pqAnalysis,
@@ -287,6 +308,7 @@ function SettingsPanel({ open, onClose, theme, setTheme, activeTab, setActive, o
           <div className="settings-grid">
             <span>Fonte</span><strong>{hasImportedDataset ? pqAnalysis.sourceName : 'Demonstração calculada'}</strong>
             <span>Tipo</span><strong>{pqAnalysis.sourceType}</strong>
+            <span>Origem</span><strong>{sourceKind(pqAnalysis, hasImportedDataset)}</strong>
             <span>Amostras</span><strong>{fmtCount(pqAnalysis.sampleCount)}</strong>
             <span>Instalação</span><strong>{resolvedInstallation || '-'}</strong>
             <span>Carga</span><strong>{resolvedLoadType || '-'}</strong>
@@ -513,6 +535,31 @@ function AppShell() {
           ))}
         </nav>
 
+        <section className="guided-flow" aria-label="Roteiro técnico-didático">
+          <div className="guided-flow__lead">
+            <strong>Roteiro guiado</strong>
+            <span>Dados &gt; medição &gt; análise &gt; relatório</span>
+          </div>
+          <div className="guided-flow__steps">
+            {GUIDED_FLOW.map((step, index) => {
+              const done = GUIDED_FLOW.findIndex(item => item.id === active) > index
+              const current = step.id === active
+              return (
+                <button
+                  key={step.id}
+                  className={`guided-step${current ? ' active' : ''}${done ? ' done' : ''}`}
+                  onClick={() => setActive(step.id)}
+                  aria-current={current ? 'step' : undefined}
+                >
+                  <span>{index + 1}</span>
+                  <strong>{step.label}</strong>
+                  <small>{step.detail}</small>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
         <main key={active} className="tab-content tab-enter">
           <ModuleErrorBoundary resetKey={active} onRecover={() => setActive('dashboard')}>
             <Suspense fallback={<div className="panel module-loading">Carregando módulo...</div>}>
@@ -524,6 +571,7 @@ function AppShell() {
 
       <footer className="statusbar">
         <span className="statusbar__item"><span className="statusbar__dot" /> {engineLabel}</span>
+        <span className="statusbar__item"><span className="provenance-pill">{sourceKind(pqAnalysis, hasImportedDataset)}</span></span>
         <span className="statusbar__item">Fonte: {sourceLabel}</span>
         <span className="statusbar__item">Amostras: {fmtCount(pqAnalysis.sampleCount)}</span>
         <span className="statusbar__item statusbar__item--grow">Módulo: {activeTab.label}</span>

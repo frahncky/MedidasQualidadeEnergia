@@ -262,7 +262,7 @@ function DynamicCircuitSvg({ source, branches, onRemoveBranch }) {
   )
 }
 
-export default function Simulacao({ initialMode = 'ca', lockedMode = null, embedded = false, title = 'Montador de Cargas' } = {}) {
+export default function Simulacao({ initialMode = 'ca', lockedMode = null, embedded = false, title = 'Estudo Guiado de Cargas' } = {}) {
   const fixedMode = lockedMode ?? initialMode
   const [source, setSource] = useState({ mode: fixedMode, Vac: 127, Vdc: 12, f: 60 })
   const [loads, setLoads] = useState(DEFAULT_LOADS[fixedMode] ?? DEFAULT_LOADS.ca)
@@ -322,6 +322,12 @@ export default function Simulacao({ initialMode = 'ca', lockedMode = null, embed
   return (
     <div className={`sim-page${embedded ? ' sim-page--embedded' : ''}`}>
       <div className="sim-sidebar">
+        {!embedded && (
+          <div className="guidance-card">
+            <strong>Função desta aba</strong>
+            <span>Variar parâmetros e observar corrente, potência, FP e natureza da carga. Para montagem esquemática completa, use a aba Editor.</span>
+          </div>
+        )}
         <div className="panel">
           <div className="panel__head">{title}</div>
           <div className="panel__body sim-form-grid">
@@ -393,7 +399,10 @@ export default function Simulacao({ initialMode = 'ca', lockedMode = null, embed
         </div>
 
         <div className="panel sim-circuit-panel">
-          <div className="panel__head">Circuito Expansível</div>
+          <div className="panel__head">Modelo Visual de Cargas</div>
+          <div className="panel-note">
+            O desenho representa ramos equivalentes em paralelo para estudo didático; não substitui um solver SPICE para topologias arbitrárias.
+          </div>
           <div className="sim-circuit-scroll">
             <DynamicCircuitSvg source={source} branches={circuit.branches} onRemoveBranch={id => changeQty(id, -1)} />
           </div>

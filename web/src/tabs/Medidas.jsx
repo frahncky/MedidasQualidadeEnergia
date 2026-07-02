@@ -89,12 +89,18 @@ export default function Medidas({ onNavigate }) {
           ))}
         </div>
         <div className="panel__body" style={{ borderTop: '1px solid #e2e8f0' }}>
-          <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }}>+ Adicionar Instrumento</button>
+          <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }} onClick={() => onNavigate?.('metrologia')}>Gerenciar instrumentos</button>
         </div>
       </aside>
 
       {/* Center: measurement workflow */}
-      <main style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr 210px', gap: 10, minHeight: 0 }}>
+      <main style={{ display: 'grid', gridTemplateRows: 'auto auto auto 1fr 210px', gap: 10, minHeight: 0 }}>
+
+        <div className="guidance-strip">
+          <span className="data-badge data-badge--didatico">didático</span>
+          <strong>Fluxo de medição:</strong>
+          <span>selecione o instrumento, escolha o método, confira faixa/burden e documente incerteza antes de levar a leitura para relatório ou metrologia.</span>
+        </div>
 
         {/* Step 1: Measurement type */}
         <div className="panel">
@@ -163,16 +169,19 @@ export default function Medidas({ onNavigate }) {
           {/* Step 5: Waveform */}
           <div className="panel">
             <div className="panel__head">5. Visualização em Tempo Real — {measureType}</div>
-            <div style={{ height: 275, padding: 10 }}>
-              <ResponsiveContainer>
-                <LineChart data={wave}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="t" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip />
-                  {waveLines.map(l => <Line key={l.key} dataKey={l.key} stroke={l.color} dot={false} name={l.name} strokeWidth={2} />)}
-                </LineChart>
-              </ResponsiveContainer>
+            <div style={{ height: 275, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <p className="panel-note">Janela ilustrativa de aquisição. Para laudo, use leituras importadas ou medições registradas com instrumento e incerteza rastreáveis.</p>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <ResponsiveContainer>
+                  <LineChart data={wave}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="t" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    {waveLines.map(l => <Line key={l.key} dataKey={l.key} stroke={l.color} dot={false} name={l.name} strokeWidth={2} />)}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
@@ -213,6 +222,7 @@ export default function Medidas({ onNavigate }) {
           <div className="panel">
             <div className="panel__head">12. Segurança e Conformidade</div>
             <div className="panel__body checklist">
+              <p className="panel-note">Checklist operacional para reduzir erro de ligação e risco de medição antes de energizar o ponto avaliado.</p>
               {['Conexões verificadas', 'Isolação adequada', 'Aterramento verificado', 'CAT III 600 V', 'IEC 61010-1'].map((x, i) => (
                 <label key={x}>
                   <input type="checkbox" checked={checklist[i]} onChange={e => setChecklist(c => c.map((v, j) => j === i ? e.target.checked : v))} />
@@ -226,8 +236,8 @@ export default function Medidas({ onNavigate }) {
             <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <button className="btn btn-ghost btn-sm" onClick={() => { exportCSV(wave.slice(0,50).map((d,i)=>({amostra:i+1,...d})), 'leituras_medidas.csv'); toast('Leituras exportadas em CSV', 'success') }}>Exportar Leituras</button>
               <button className="btn btn-primary btn-sm" onClick={() => { toast('Abrindo gerador de relatórios', 'info'); onNavigate?.('relatorios') }}>Gerar Relatório</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => toast('Captura de tela salva na pasta de downloads', 'success')}>Capturar Tela</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => toast('Abrindo configurações do instrumento…', 'info')}>Configurar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { window.print(); toast('Janela de impressão aberta', 'info') }}>Imprimir</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => onNavigate?.('metrologia')}>Metrologia</button>
             </div>
           </div>
         </div>

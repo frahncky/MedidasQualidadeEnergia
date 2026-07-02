@@ -274,10 +274,14 @@ export default function Relatorios({ onNavigate }) {
           <button className="btn btn-primary btn-lg" onClick={handleGenerate} disabled={generating}>
             {generating ? '⏳ Gerando…' : generated ? '✓ Gerar Novamente' : 'Gerar Relatório'}
           </button>
-          <button className="btn btn-subtle btn-lg" onClick={() => toast('Agendamento configurado', 'success')}>Agendar</button>
-          <button className="btn btn-subtle btn-lg" onClick={() => toast('Assinatura digital disponível na versão Enterprise', 'info')}>Assinar</button>
-          <button className="btn btn-subtle btn-lg" onClick={() => toast('Compartilhamento por e-mail disponível na versão Enterprise', 'info')}>Compartilhar</button>
           {generated && <span style={{ color: '#16a34a', fontWeight: 700, marginLeft: 8 }}>✓ {totalPages} páginas geradas</span>}
+        </div>
+        <div className="panel__body" style={{ paddingTop: 0 }}>
+          <div className="guidance-strip">
+            <span className="data-badge data-badge--estimado">{generated ? 'gerado' : 'rascunho'}</span>
+            <strong>Relatório técnico:</strong>
+            <span>exporta apenas seções, dados, normas e figuras já presentes na análise; assinatura, agendamento e envio exigem fluxo documental próprio.</span>
+          </div>
         </div>
       </div>
 
@@ -291,8 +295,9 @@ export default function Relatorios({ onNavigate }) {
               <select className="form-select" style={{ width: '100%' }} value={template} onChange={e => { setTemplate(e.target.value); setGenerated(false) }}>
                 {TEMPLATES.map(t => <option key={t}>{t}</option>)}
               </select>
-              <button className="btn btn-subtle btn-sm" style={{ marginTop: 8, width: '100%', justifyContent: 'center' }}
-                onClick={() => toast('Gerenciador de modelos disponível na versão Pro', 'info')}>Gerenciar Modelos</button>
+              <div className="info-note" style={{ marginTop: 8, fontSize: 11 }}>
+                O modelo define a estrutura exportada; campos editáveis ficam em Dados do Relatório.
+              </div>
             </div>
           </div>
           <div className="panel" style={{ flex: 1 }}>
@@ -321,7 +326,6 @@ export default function Relatorios({ onNavigate }) {
               <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: 9, marginBottom: 8 }}>
                 <b style={{ color: '#1d4ed8', flex: 1, fontSize: 12 }}>{item}</b>
                 <input type="checkbox" checked={inclusions.has(item)} onChange={e => toggleInclusion(item, e.target.checked)} />
-                <button className="btn btn-subtle btn-sm" onClick={() => toast(`Configurando: ${item}`, 'info')}>Configurar</button>
               </div>
             ))}
             <div className="info-note" style={{ marginTop: 8, fontSize: 11 }}>
@@ -373,7 +377,7 @@ export default function Relatorios({ onNavigate }) {
                 <label key={o}><input type="checkbox" checked={figureFormats[i]} onChange={e => setFigureFormats(v => v.map((x, j) => j === i ? e.target.checked : x))} />{o}</label>
               ))}
               <button className="btn btn-primary btn-sm" style={{ justifyContent: 'center', width: '100%', marginTop: 8 }}
-                onClick={() => toast('Exportação de figuras disponível após gerar relatório', generated ? 'success' : 'warning')}>Exportar Figuras</button>
+                onClick={() => { exportCSV(FIGURES.map(([descricao, tipo, pagina], index) => ({ '#': index + 1, descricao, tipo, pagina })), 'figuras_relatorio.csv'); toast('Índice de figuras exportado em CSV', 'success') }}>Exportar Índice</button>
               <button className="btn btn-subtle btn-sm" style={{ justifyContent: 'center', width: '100%' }}
                 onClick={() => { exportCSV(Object.entries(reportData).map(([campo,valor])=>({campo,valor})), 'dados_relatorio.csv'); toast('Tabelas exportadas em CSV', 'success') }}>Exportar Tabelas</button>
             </div>
@@ -412,9 +416,6 @@ export default function Relatorios({ onNavigate }) {
           <table className="tbl"><tbody>
             {APPENDICES.map((a,i)=><tr key={a}><td>{a}</td><td><input type="checkbox" checked={appendices[i]} onChange={e=>setAppendices(v=>v.map((x,j)=>j===i?e.target.checked:x))}/></td></tr>)}
           </tbody></table>
-          <div className="panel__body">
-            <button className="btn btn-subtle btn-sm" style={{width:'100%',justifyContent:'center'}} onClick={()=>toast('Novo apêndice adicionado', 'success')}>+ Adicionar Apêndice</button>
-          </div>
         </div>
 
         <div className="panel">

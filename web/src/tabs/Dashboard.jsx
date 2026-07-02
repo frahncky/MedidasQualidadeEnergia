@@ -94,6 +94,15 @@ function fmtDuration(hours) {
   return `${fmt(hours / 24, 1)} dias`
 }
 
+function sourceKind(analysis, hasImportedDataset) {
+  const type = String(analysis?.sourceType ?? '').toLowerCase()
+  if (type.includes('simula')) return 'simulado'
+  if (!hasImportedDataset || type.includes('demonstra')) return 'demonstração'
+  if (type.includes('comtrade')) return 'COMTRADE'
+  if (type.includes('refer')) return 'base real'
+  return 'importado'
+}
+
 function bucket(values, count) {
   const size = Math.max(1, Math.ceil(values.length / count))
   return Array.from({ length: count }, (_, index) => values.slice(index * size, (index + 1) * size)).filter(group => group.length)
@@ -261,6 +270,7 @@ export default function Dashboard({ onNavigate }) {
     setPeriod,
     pqAnalysis,
     analysisStatus,
+    hasImportedDataset,
   } = useAppContext()
   const toast = useToast()
   const [loading, setLoading] = useState(false)
@@ -284,6 +294,12 @@ export default function Dashboard({ onNavigate }) {
     .map(h => ({ order: `${h.order}ª`, mag: h.percent ?? 0, limit: h.limitPct })), [pqAnalysis])
   const dataBasis = windowStats.hasMeasuredPower ? 'P_kW medido' : 'potência estimada por fasores'
   const basisColor = windowStats.billingReady ? '#16a34a' : '#d97706'
+  const provenance = sourceKind(pqAnalysis, hasImportedDataset)
+  const interpretation = windowStats.billingReady
+    ? 'Leitura operacional: energia, demanda e custo usam histórico de potência medido em janela tarifária mínima.'
+    : windowStats.hasMeasuredPower
+      ? 'Leitura técnica: há potência medida, mas a janela ainda é curta para conclusões tarifárias mensais.'
+      : 'Leitura didática: potência e energia são estimadas por tensão, corrente e FP; use como triagem, não como faturamento.'
   const detailColor = tone => tone === 'warn' ? '#d97706' : tone === 'ok' ? '#16a34a' : '#64748b'
 
   const STATUS = [
@@ -340,6 +356,12 @@ export default function Dashboard({ onNavigate }) {
         </button>
       </div>
 
+      <div className="guidance-strip">
+        <span className={`data-badge data-badge--${provenance.replace(/\s+/g, '-')}`}>{provenance}</span>
+        <strong>Como interpretar:</strong>
+        <span>{interpretation}</span>
+      </div>
+
       {/* KPI cards */}
       <div style={{ padding: '8px 12px', flexShrink: 0 }}>
         <div className="kpi-row">
@@ -370,6 +392,9 @@ export default function Dashboard({ onNavigate }) {
                 ))}
               </span>
             </div>
+            <div className="panel-note">
+              A curva azul acumula energia; a laranja mostra demanda média por agrupamento. Tracejado indica que a potência foi estimada.
+            </div>
             <div style={{ height: 'calc(100% - 38px)', padding: 8 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={series} margin={{ top: 4, right: 30, left: 0, bottom: 0 }}>
@@ -387,6 +412,9 @@ export default function Dashboard({ onNavigate }) {
           </div>
           <div className="panel" style={{ flex: 1 }}>
             <div className="panel__head">Espectro Harmônico de Tensão (Fase A)</div>
+            <div className="panel-note">
+              Compare cada barra com o limite IEEE 519. Harmônicas altas indicam cargas não lineares ou distorção na alimentação.
+            </div>
             <div style={{ height: 'calc(100% - 38px)', padding: 8 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={harmonicData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -406,6 +434,9 @@ export default function Dashboard({ onNavigate }) {
         <div className="dashboard-col">
           <div className="panel" style={{ flexShrink: 0 }}>
             <div className="panel__head">Alarmes e Eventos Recentes</div>
+            <div className="panel-note">
+              Eventos são classificados por RMS, frequência e transitórios; use severidade e fase para priorizar investigação.
+            </div>
             <div style={{ maxHeight: 200, overflow: 'auto' }}>
               <table className="tbl" style={{ tableLayout: 'fixed' }}>
                 <thead>
@@ -426,6 +457,9 @@ export default function Dashboard({ onNavigate }) {
 
           <div className="panel" style={{ flex: 1 }}>
             <div className="panel__head">Linha do Tempo — Fator de Potência</div>
+            <div className="panel-note">
+              A linha verde marca FP 0,92. Abaixo dela, avalie correção capacitiva e perfil de cargas indutivas.
+            </div>
             <div style={{ height: 'calc(100% - 38px)', padding: 8 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={series} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>

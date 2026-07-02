@@ -594,7 +594,7 @@ export default function Dados() {
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <div className="panel" style={{ flex: 1 }}>
           <div className="panel__head">Fontes de Dados
-            <button className="btn btn-subtle btn-sm" style={{ marginLeft: 'auto' }} onClick={() => toast('Funcionalidade de adicionar fonte disponível na versão completa', 'info')}>+ Adicionar</button>
+            <span className="panel-tag">Catálogo curado</span>
           </div>
           <div className="panel__body scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
             {DATA_SOURCE_GROUPS.map(group => (
@@ -640,6 +640,12 @@ export default function Dados() {
 
       {/* Main area */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+
+        <div className="guidance-strip">
+          <span className={`data-badge ${hasParsedData ? 'data-badge--importado' : 'data-badge--sem-base'}`}>{hasParsedData ? 'importado' : 'sem base'}</span>
+          <strong>Linhagem dos dados:</strong>
+          <span>cada importação preserva origem, formato, período e amostra. Bases de demonstração ajudam a explorar o app, mas não substituem uma medição real em laudo.</span>
+        </div>
 
         {/* Import panel */}
         <div className="panel">
@@ -736,8 +742,7 @@ export default function Dados() {
               <select className="form-select" value={mappingTemplate} onChange={e => setMappingTemplate(e.target.value)} style={{ width: 220 }}>
                 {['Padrão - PQ e Energia', 'IEC 61850', 'COMTRADE', 'Personalizado'].map(o => <option key={o}>{o}</option>)}
               </select>
-              <button className="btn btn-subtle btn-sm" onClick={() => toast('Mapeamento carregado', 'success')}>Carregar</button>
-              <button className="btn btn-subtle btn-sm" onClick={() => toast('Mapeamento salvo', 'success')}>Salvar</button>
+              <span className="panel-tag">Mapeamento sugerido</span>
             </div>
           </div>
           <div className="panel__body--np scroll-y" style={{ maxHeight: 305, overflow: 'auto' }}>
