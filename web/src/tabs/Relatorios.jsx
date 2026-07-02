@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useToast } from '../components/Toast'
 import { exportJSON, exportCSV, exportText, exportHTML, printHTML, exportDOCX } from '../utils/export'
 import { useAppContext } from '../context/AppContext'
@@ -77,8 +77,8 @@ function complianceRows(analysis) {
   return analysis.conformity.checks.map(check => [
     check.name,
     check.limit,
-    typeof check.value === 'number' ? fmt(check.value, check.value < 10 ? 2 : 1) : check.value,
-    check.ok ? 'Conforme' : 'Não conforme',
+    check.applicable === false ? 'N/D' : Number.isFinite(check.value) ? fmt(check.value, check.value < 10 ? 2 : 1) : 'N/D',
+    check.applicable === false ? 'N/D' : check.ok ? 'Conforme' : 'Não conforme',
   ])
 }
 
@@ -154,7 +154,7 @@ function buildReportHTML(data, sections, analysis) {
   </div>
   <h2>Resumo de Conformidade</h2>
   <table><thead><tr><th>Parâmetro</th><th>Limite</th><th>Valor</th><th>Status</th></tr></thead><tbody>
-    ${rows.map(row => `<tr>${row.map((cell, index) => `<td class="${index === 3 ? (cell === 'Conforme' ? 'ok' : 'bad') : ''}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
+    ${rows.map(row => `<tr>${row.map((cell, index) => `<td class="${index === 3 ? (cell === 'Conforme' ? 'ok' : cell === 'N/D' ? '' : 'bad') : ''}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
   </tbody></table>
   <h2>Classificação PRODIST</h2>
   <table><thead><tr><th>Faixa</th><th>Amostras</th><th>%</th></tr></thead><tbody>
@@ -177,7 +177,7 @@ function buildReportHTML(data, sections, analysis) {
 
 export default function Relatorios({ onNavigate }) {
   const toast = useToast()
-  const { pqAnalysis, installation, dateFrom, dateTo } = useAppContext()
+  const { pqAnalysis, installation, resolvedInstallation, dateFrom, dateTo } = useAppContext()
   const [template, setTemplate] = useState(TEMPLATES[0])
   const [selectedSections, setSelectedSections] = useState(() => new Set(ALL_SECTIONS.map(s => s.id)))
   const [inclusions, setInclusions] = useState(() => new Set(INCLUSIONS))
@@ -188,7 +188,7 @@ export default function Relatorios({ onNavigate }) {
   const [reportData, setReportData] = useState(() => ({
     ...Object.fromEntries(REPORT_DATA_FIELDS),
     'Período de Medição': `${dateFrom} – ${dateTo}`,
-    'Local da Instalação': installation,
+    'Local da Instalação': resolvedInstallation || installation,
   }))
   const [page, setPage] = useState(1)
   const [generating, setGenerating] = useState(false)
@@ -198,6 +198,14 @@ export default function Relatorios({ onNavigate }) {
     const hasGraphs = inclusions.has('Gráficos e Curvas')
     return Math.max(4, selectedSections.size * 2 + (hasGraphs ? 5 : 0))
   }, [selectedSections, inclusions])
+
+  useEffect(() => {
+    setReportData(prev => ({
+      ...prev,
+      'Período de Medição': `${dateFrom} – ${dateTo}`,
+      'Local da Instalação': resolvedInstallation || installation,
+    }))
+  }, [dateFrom, dateTo, resolvedInstallation, installation])
 
   function toggleSection(id) {
     setSelectedSections(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })

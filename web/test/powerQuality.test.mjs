@@ -18,8 +18,8 @@ test('synthetic harmonics preserve requested THD', () => {
 test('demo dataset produces advanced PQ indicators', () => {
   const analysis = analyzePowerQuality(buildDemoPowerQualityDataset())
 
-  assert.ok(analysis.sampleCount > 1000)
-  assert.equal(analysis.sourceWindowHours, 0.5)
+  assert.ok(analysis.sampleCount > 50000)
+  assert.equal(analysis.sourceWindowHours, 2)
   assert.ok(analysis.summary.thdVAvg > 0)
   assert.ok(analysis.summary.thdIAvg > 0)
   assert.ok(analysis.normalizedRows.some(row => Number.isFinite(row.p)))
@@ -31,6 +31,18 @@ test('demo dataset produces advanced PQ indicators', () => {
   assert.ok(analysis.conformity.checks.some(check => check.name === 'Inter-harmônicas V'))
   assert.ok(analysis.recommendations.length > 0)
   assert.ok(analysis.summary.prodistVoltage.Adequada.count >= 0)
+})
+
+test('demo dataset profiles industrial, commercial and hospital are distinct', () => {
+  const industrial = analyzePowerQuality(buildDemoPowerQualityDataset('industrial'))
+  const commercial = analyzePowerQuality(buildDemoPowerQualityDataset('comercial'))
+  const hospital = analyzePowerQuality(buildDemoPowerQualityDataset('hospitalar'))
+
+  assert.ok(industrial.sampleCount > 50000)
+  assert.ok(commercial.sampleCount > 50000)
+  assert.ok(hospital.sampleCount > 50000)
+  assert.ok(industrial.power.pKw > hospital.power.pKw)
+  assert.ok(hospital.power.pKw > commercial.power.pKw)
 })
 
 test('aggregated CSV-style rows are analyzed without waveform data', () => {
@@ -65,6 +77,46 @@ test('numeric timestamp column is not mapped as active power', () => {
 
   assert.ok(analysis.normalizedRows.every(row => row.p === null))
   assert.ok(analysis.power.pKw < 100)
+})
+
+test('frequency-only real reference data stays frequency-only', () => {
+  const analysis = analyzePowerQuality({
+    fileName: 'power_grid_frequency.csv',
+    sourceType: 'Real aberta importada (CSV)',
+    sourceReference: 'Power Grid Frequency Database',
+    sourceLineage: 'Real aberta',
+    columns: ['timestamp', 'frequency'],
+    rows: [
+      { timestamp: '2024-05-01 00:00:00', frequency: 60.01 },
+      { timestamp: '2024-05-01 00:00:01', frequency: 59.99 },
+      { timestamp: '2024-05-01 00:00:02', frequency: 60.00 },
+    ],
+  })
+
+  assert.equal(analysis.sourceReference, 'Power Grid Frequency Database')
+  assert.equal(analysis.sampleCount, 3)
+  assert.equal(analysis.summary.dataAvailability.frequency, true)
+  assert.equal(analysis.summary.dataAvailability.voltage, false)
+  assert.equal(analysis.events.length, 0)
+  assert.equal(analysis.conformity.checks.find(check => check.name === 'Tensão RMS').applicable, false)
+})
+
+test('active power datasets in watts are normalized to kW', () => {
+  const analysis = analyzePowerQuality({
+    fileName: 'uk_dale_power.csv',
+    sourceType: 'Real aberta importada (CSV)',
+    sourceReference: 'UK-DALE',
+    sourceLineage: 'Real aberta',
+    columns: ['timestamp', 'power'],
+    rows: [
+      { timestamp: '2024-05-01 00:00:00', power: 1000 },
+      { timestamp: '2024-05-01 00:00:01', power: 2000 },
+    ],
+  })
+
+  assert.equal(analysis.summary.dataAvailability.power, true)
+  assert.equal(analysis.normalizedRows[0].p, 1)
+  assert.equal(analysis.power.pKw, 1.5)
 })
 
 test('ASCII COMTRADE files are converted to a PQ dataset', () => {

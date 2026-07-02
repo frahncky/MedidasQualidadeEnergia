@@ -45,6 +45,8 @@ export default function QualidadeEnergia({ onNavigate }) {
   const {
     installation: instalacao,
     setInstallation: setInstalacao,
+    resolvedInstallation,
+    hasDatasetInstallation,
     dateFrom,
     setDateFrom,
     dateTo,
@@ -94,6 +96,11 @@ export default function QualidadeEnergia({ onNavigate }) {
     { name: 'Conforme',  value: pqAnalysis.conformity.conforming,    color: '#16a34a' },
     { name: 'Não conf.', value: pqAnalysis.conformity.nonConforming, color: '#dc2626' },
   ], [pqAnalysis.conformity])
+  const installationOptions = useMemo(() => {
+    const defaults = ['Subestação Principal', 'Laboratório LQE', 'Fábrica Norte']
+    const options = [resolvedInstallation, instalacao, ...defaults].filter(Boolean)
+    return [...new Set(options)]
+  }, [resolvedInstallation, instalacao])
 
   const voltageDomain = [
     Math.max(0, pqAnalysis.nominalVoltage * 0.85),
@@ -198,9 +205,12 @@ export default function QualidadeEnergia({ onNavigate }) {
             <span style={{ color: '#64748b', fontSize: 11 }}>até</span>
             <input type="text" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: 110 }} />
             <label>Instalação:</label>
-            <select value={instalacao} onChange={e => setInstalacao(e.target.value)} style={{ width: 180 }}>
-              {['Subestação Principal', 'Laboratório LQE', 'Fábrica Norte'].map(o => <option key={o}>{o}</option>)}
+            <select value={resolvedInstallation} onChange={e => setInstalacao(e.target.value)} style={{ width: 180 }} disabled={hasDatasetInstallation}>
+              {installationOptions.map(o => <option key={o}>{o}</option>)}
             </select>
+            {hasDatasetInstallation && (
+              <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>instalação vinda da base</span>
+            )}
             <label>Sistema:</label>
             <select value={fase} onChange={e => setFase(e.target.value)} style={{ width: 110 }}>
               {PHASE_OPTIONS.map(o => <option key={o}>{o}</option>)}

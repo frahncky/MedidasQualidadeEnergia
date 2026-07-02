@@ -38,3 +38,4 @@ Thumbs.db
 # Web build/dependency outputs
 web/node_modules/
 web/dist/
+web/vite-dev.*.log

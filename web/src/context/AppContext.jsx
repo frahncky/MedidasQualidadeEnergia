@@ -1,5 +1,6 @@
 import { createContext, useContext, useRef, useState, useEffect } from 'react'
 import { analyzePowerQuality } from '../utils/powerQuality'
+import { readJsonStorage, writeJsonStorage } from '../utils/storage'
 
 const AppCtx = createContext(null)
 
@@ -8,7 +9,54 @@ export function useAppContext() {
 }
 
 function ls(key, def) {
-  try { return JSON.parse(localStorage.getItem(key)) ?? def } catch { return def }
+  return readJsonStorage(key, def)
+}
+
+function normalizeText(value) {
+  return String(value ?? '').trim()
+}
+
+function firstFilled(...values) {
+  for (const value of values) {
+    const normalized = normalizeText(value)
+    if (normalized) return normalized
+  }
+  return ''
+}
+
+function findColumnValue(dataset, aliases = []) {
+  const rows = dataset?.rows
+  if (!Array.isArray(rows) || !rows.length) return ''
+  const columns = dataset?.columns?.length ? dataset.columns : Object.keys(rows[0] ?? {})
+  if (!columns.length) return ''
+  const normalizedAliases = aliases.map(alias => alias.toLowerCase())
+  const column = columns.find(name => {
+    const key = String(name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    return normalizedAliases.some(alias => key.includes(alias))
+  })
+  if (!column) return ''
+  for (let i = 0; i < rows.length; i += 1) {
+    const value = firstFilled(rows[i]?.[column])
+    if (value) return value
+  }
+  return ''
+}
+
+function datasetContext(dataset) {
+  const installation = firstFilled(
+    dataset?.installation,
+    dataset?.siteName,
+    dataset?.sourceInstallation,
+    dataset?.metadata?.installation,
+    findColumnValue(dataset, ['installation', 'instalacao', 'site', 'substation', 'planta', 'unidade'])
+  )
+  const loadType = firstFilled(
+    dataset?.loadType,
+    dataset?.sourceLoadType,
+    dataset?.metadata?.loadType,
+    findColumnValue(dataset, ['loadtype', 'tipocarga', 'carga', 'consumerclass', 'segment'])
+  )
+  return { installation, loadType }
 }
 
 const DEFAULT_INSTRUMENTS = [
@@ -21,6 +69,7 @@ const DEFAULT_INSTRUMENTS = [
 
 export function AppProvider({ children }) {
   const [installation, setInstallation] = useState(() => ls('smqe_installation', 'Subestação Principal'))
+  const [loadType, setLoadType] = useState(() => ls('smqe_loadType', 'Todas'))
   const [period, setPeriod] = useState(() => ls('smqe_period', 'Mês'))
   const [dateFrom, setDateFrom] = useState(() => ls('smqe_dateFrom', '01/05/2024'))
   const [dateTo, setDateTo] = useState(() => ls('smqe_dateTo', '31/05/2024'))
@@ -30,11 +79,12 @@ export function AppProvider({ children }) {
   const [analysisStatus, setAnalysisStatus] = useState({ running: false, source: 'main-thread', elapsedMs: 0, error: '' })
   const requestRef = useRef(0)
 
-  useEffect(() => { localStorage.setItem('smqe_installation', JSON.stringify(installation)) }, [installation])
-  useEffect(() => { localStorage.setItem('smqe_period', JSON.stringify(period)) }, [period])
-  useEffect(() => { localStorage.setItem('smqe_dateFrom', JSON.stringify(dateFrom)) }, [dateFrom])
-  useEffect(() => { localStorage.setItem('smqe_dateTo', JSON.stringify(dateTo)) }, [dateTo])
-  useEffect(() => { localStorage.setItem('smqe_instruments', JSON.stringify(instruments)) }, [instruments])
+  useEffect(() => { writeJsonStorage('smqe_installation', installation) }, [installation])
+  useEffect(() => { writeJsonStorage('smqe_loadType', loadType) }, [loadType])
+  useEffect(() => { writeJsonStorage('smqe_period', period) }, [period])
+  useEffect(() => { writeJsonStorage('smqe_dateFrom', dateFrom) }, [dateFrom])
+  useEffect(() => { writeJsonStorage('smqe_dateTo', dateTo) }, [dateTo])
+  useEffect(() => { writeJsonStorage('smqe_instruments', instruments) }, [instruments])
 
   useEffect(() => {
     const requestId = requestRef.current + 1
@@ -98,9 +148,18 @@ export function AppProvider({ children }) {
     setInstruments(prev => prev.filter(i => i.id !== id))
   }
 
+  const datasetMeta = datasetContext(importedDataset)
+  const resolvedInstallation = datasetMeta.installation || installation
+  const resolvedLoadType = datasetMeta.loadType || loadType
+
   return (
     <AppCtx.Provider value={{
       installation, setInstallation,
+      loadType, setLoadType,
+      resolvedInstallation,
+      resolvedLoadType,
+      hasDatasetInstallation: Boolean(datasetMeta.installation),
+      hasDatasetLoadType: Boolean(datasetMeta.loadType),
       period, setPeriod,
       dateFrom, setDateFrom,
       dateTo, setDateTo,

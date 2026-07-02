@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
@@ -6,6 +6,19 @@ import { DadosInfoPanel, DadosMiniChart } from '../components/DadosPanels'
 import { useToast } from '../components/Toast'
 import { exportCSV } from '../utils/export'
 import { useAppContext } from '../context/AppContext'
+import {
+  DATA_SOURCE_CATALOG,
+  DATA_SOURCE_GROUPS,
+  referenceMetadata,
+  sourceTypeForImport,
+} from '../data/referenceDatasets'
+import {
+  getLatestImportForSource,
+  listImportedDatasetRecords,
+  loadImportedDataset,
+  saveImportedDatasetRecord,
+  seedDatasetRegistry,
+} from '../data/datasetRegistry'
 import { buildDemoPowerQualityDataset } from '../utils/powerQuality'
 import { parseComtradeFiles } from '../utils/comtrade'
 import {
@@ -20,19 +33,9 @@ import {
   suggestColumn,
 } from '../utils/dataImport'
 
-const SOURCES_LIST = [
-  { name: 'PQA-5000 #12345', group: 'Aquisições Locais',              status: 'Online',  color: '#16a34a' },
-  { name: 'PQA-5000 #12346', group: 'Aquisições Locais',              status: 'Offline', color: '#94a3b8' },
-  { name: 'PMU-120 #01',     group: 'Arquivos Locais',                status: 'Online',  color: '#16a34a' },
-  { name: 'SQL Server PQDB', group: 'Servidores / Banco de Dados',    status: 'Online',  color: '#16a34a' },
-  { name: 'Azure Blob Storage', group: 'Nuvem',                       status: 'Standby', color: '#d97706' },
-]
+const FORMATS = ['CSV', 'XLSX', 'MAT', 'TDMS', 'COMTRADE', 'PQDIF', 'Banco SQL']
 
-const GROUPS = ['Aquisições Locais', 'Arquivos Locais', 'Servidores / Banco de Dados', 'Nuvem', 'Dispositivos Remotos']
-
-const FORMATS = ['CSV', 'XLSX', 'MAT', 'TDMS', 'COMTRADE', 'Banco SQL']
-
-const FORMAT_EXTENSIONS = { CSV: '.csv', XLSX: '.xlsx,.xls', MAT: '.mat', TDMS: '.tdms', COMTRADE: '.cfg,.dat,.hdr', 'Banco SQL': '' }
+const FORMAT_EXTENSIONS = { CSV: '.csv', XLSX: '.xlsx,.xls', MAT: '.mat', TDMS: '.tdms', COMTRADE: '.cfg,.dat,.hdr', PQDIF: '.pqd,.pqdif', 'Banco SQL': '' }
 
 const FIELDS = [
   ['Timestamp',   'DataHora',  'datetime', 'Obrigatório'],
@@ -92,6 +95,12 @@ function previewNoise(i) {
   return value - Math.floor(value)
 }
 
+const DEMO_PROFILE_BY_ID = {
+  'demo-industrial': 'industrial',
+  'demo-comercial': 'comercial',
+  'demo-hospitalar': 'hospitalar',
+}
+
 const PREVIEW_ROWS = Array.from({ length: 20 }, (_, i) => ({
   timestamp: `2024-05-${String(i + 1).padStart(2,'0')} 00:00`,
   Va: +(219.5 + Math.sin(i*0.4)*1.2).toFixed(2),
@@ -100,6 +109,29 @@ const PREVIEW_ROWS = Array.from({ length: 20 }, (_, i) => ({
   Ia: +(610 + Math.sin(i*0.3)*8).toFixed(1),
   FP: +(0.92 + previewNoise(i)*0.04).toFixed(3),
 }))
+
+const WEB_IMPORT_FORMATS = new Set(['CSV', 'XLSX'])
+
+function fileNameFromDownloadUrl(url, fallback = 'base_web.csv') {
+  const cleanPath = String(url ?? '').split(/[?#]/)[0]
+  const lastPart = cleanPath.split('/').filter(Boolean).pop()
+  try {
+    return lastPart ? decodeURIComponent(lastPart) : fallback
+  } catch {
+    return lastPart || fallback
+  }
+}
+
+function inferDownloadFormat(url, fallback = 'CSV') {
+  const cleanPath = String(url ?? '').split(/[?#]/)[0].toLowerCase()
+  if (/\.(xlsx|xls)$/.test(cleanPath)) return 'XLSX'
+  if (/\.(csv|txt|tsv)$/.test(cleanPath)) return 'CSV'
+  return fallback || 'CSV'
+}
+
+function looksLikeDataFile(url) {
+  return /\.(csv|txt|tsv|xlsx|xls)$/i.test(String(url ?? '').split(/[?#]/)[0])
+}
 
 export default function Dados() {
   const toast = useToast()
@@ -115,7 +147,32 @@ export default function Dados() {
   const [parsedData, setParsedData] = useState({ columns: [], rows: [], totalRows: 0, delimiter: '' })
   const [fileMeta, setFileMeta] = useState({ size: '', encoding: 'UTF-8' })
   const [parseError, setParseError] = useState('')
+  const [selectedSource, setSelectedSource] = useState(DATA_SOURCE_CATALOG[0])
+  const [datasetRecords, setDatasetRecords] = useState([])
+  const [registryStatus, setRegistryStatus] = useState('Inicializando')
+  const [downloadUrl, setDownloadUrl] = useState('')
+  const [downloadingWeb, setDownloadingWeb] = useState(false)
   const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    let active = true
+    seedDatasetRegistry()
+      .then(() => listImportedDatasetRecords())
+      .then(records => {
+        if (!active) return
+        setDatasetRecords(records)
+        setRegistryStatus('Pronto')
+      })
+      .catch(error => {
+        if (!active) return
+        setRegistryStatus(error?.message ?? 'Indisponível')
+      })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    setDownloadUrl(selectedSource?.downloadUrl ?? '')
+  }, [selectedSource])
 
   function resetParsedData() {
     setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
@@ -123,20 +180,191 @@ export default function Dados() {
     setParseError('')
   }
 
-  function simulateLoad(name = 'arquivo_dados.csv') {
+  function simulateLoad(source = DATA_SOURCE_CATALOG[0]) {
+    const sourceInfo = typeof source === 'string'
+      ? { name: source, mode: 'demo', lineage: 'Demo sintética', preferredFormat: 'CSV', demoProfile: 'industrial' }
+      : source
+    const name = sourceInfo.name ?? 'dados_demo_energia.csv'
+    const demoProfile = sourceInfo.demoProfile ?? DEMO_PROFILE_BY_ID[sourceInfo.id] ?? 'industrial'
+    setSelectedSource(sourceInfo)
     setFileName(name)
     resetParsedData()
     setLoading(true)
     setLoaded(false)
     setChecksRun(false)
     setTimeout(() => {
-      setImportedDataset({ ...buildDemoPowerQualityDataset(), fileName: name, sourceType: 'Fonte simulada' })
+      setImportedDataset({
+        ...buildDemoPowerQualityDataset(demoProfile),
+        fileName: name,
+        sourceType: sourceTypeForImport('CSV', sourceInfo),
+        ...referenceMetadata(sourceInfo),
+      })
       setLoading(false)
       setLoaded(true)
     }, 900)
   }
 
+  async function handleSelectSource(source) {
+    setSelectedSource(source)
+    setFormat(source.preferredFormat ?? null)
+    setChecksRun(false)
+    setParseError('')
+    if (source.mode === 'demo') {
+      simulateLoad(source)
+      return
+    }
+    let record = null
+    try {
+      record = await getLatestImportForSource(source.id)
+    } catch (error) {
+      setRegistryStatus(error?.message ?? 'Banco local indisponível')
+    }
+    if (record) {
+      await loadRecordFromRegistry(record)
+      return
+    }
+    setLoaded(false)
+    setLoading(false)
+    setFileName(source.name)
+    resetParsedData()
+    toast(`${source.name} selecionada como referência`, 'info')
+  }
+
+  function selectedReferenceMetadata(source = selectedSource) {
+    return source?.mode === 'demo' ? {} : referenceMetadata(source)
+  }
+
+  function persistImportedDataset(dataset, source, importFormat) {
+    setImportedDataset(dataset)
+    saveImportedDatasetRecord({ source, dataset, format: importFormat })
+      .then(record => {
+        if (!record) return
+        setDatasetRecords(records => [record, ...records.filter(item => item.id !== record.id)])
+        setRegistryStatus('Pronto')
+      })
+      .catch(error => {
+        setRegistryStatus(error?.message ?? 'Falha ao salvar')
+        toast('Dados analisados, mas não gravados no banco local', 'warning')
+      })
+  }
+
+  async function loadRecordFromRegistry(record) {
+    if (!record) {
+      toast('Nenhuma importação gravada para esta base', 'warning')
+      return
+    }
+    const dataset = await loadImportedDataset(record.id)
+    if (!dataset) {
+      toast('Registro encontrado sem dados carregáveis', 'error')
+      return
+    }
+    setFileName(dataset.fileName ?? record.fileName)
+    setParsedData({
+      columns: dataset.columns ?? record.columns ?? [],
+      rows: (dataset.rows ?? []).slice(0, 5000),
+      totalRows: dataset.totalRows ?? dataset.rows?.length ?? 0,
+      delimiter: dataset.delimiter ?? record.format ?? '',
+    })
+    setFileMeta({ size: 'Banco local', encoding: dataset.sourceFormat ?? record.format ?? '—' })
+    setLoaded(true)
+    setChecksRun(false)
+    setParseError('')
+    setImportedDataset(dataset)
+    toast(`Base carregada do banco: ${record.fileName}`, 'success')
+  }
+
+  async function handleLoadFromRegistry() {
+    try {
+      const record = selectedStoredRecord ?? await getLatestImportForSource(selectedSource?.id)
+      await loadRecordFromRegistry(record)
+    } catch (error) {
+      toast(error?.message ?? 'Não foi possível ler o banco local', 'error')
+    }
+  }
+
+  async function handleDownloadFromWeb(event) {
+    event?.stopPropagation?.()
+    const url = downloadUrl.trim()
+    if (!url) {
+      toast('Cole uma URL direta para CSV/XLSX antes de baixar', 'warning')
+      return
+    }
+
+    const sourceAtLoad = selectedSource
+    const fallbackFormat = sourceAtLoad?.preferredFormat === 'XLSX' ? 'XLSX' : 'CSV'
+    const importFormat = inferDownloadFormat(url, fallbackFormat)
+    if (!WEB_IMPORT_FORMATS.has(importFormat)) {
+      const message = `${importFormat} ainda não baixa direto no navegador. Use CSV/XLSX ou importe o arquivo local.`
+      setParseError(message)
+      toast(message, 'warning')
+      return
+    }
+
+    const remoteName = fileNameFromDownloadUrl(
+      url,
+      `${sourceAtLoad?.id ?? 'base_web'}.${importFormat === 'XLSX' ? 'xlsx' : 'csv'}`
+    )
+
+    setFileName(remoteName)
+    setLoading(true)
+    setLoaded(false)
+    setDownloadingWeb(true)
+    setChecksRun(false)
+    setParseError('')
+    setFileMeta({ size: 'Baixando da web', encoding: importFormat })
+
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+      const contentType = response.headers.get('content-type') ?? ''
+      if (/text\/html/i.test(contentType) && !looksLikeDataFile(url)) {
+        throw new Error('A URL respondeu uma página HTML, não um arquivo de dados')
+      }
+
+      const parsed = importFormat === 'XLSX'
+        ? parseWorkbookBuffer(await response.arrayBuffer())
+        : parseCsvText(await response.text())
+      const contentLength = Number(response.headers.get('content-length') ?? 0)
+      const dataset = {
+        fileName: remoteName,
+        sourceType: sourceTypeForImport(importFormat, sourceAtLoad),
+        columns: parsed.columns,
+        rows: parsed.rows,
+        totalRows: parsed.totalRows,
+        delimiter: parsed.delimiter,
+        sheetName: parsed.sheetName,
+        importedAt: new Date().toISOString(),
+        downloadedAt: new Date().toISOString(),
+        downloadUrl: url,
+        ...selectedReferenceMetadata(sourceAtLoad),
+        sourceDownloadUrl: url,
+      }
+
+      setParsedData({
+        columns: parsed.columns,
+        rows: parsed.previewRows,
+        totalRows: parsed.totalRows,
+        delimiter: parsed.delimiter,
+      })
+      setFileMeta({ size: contentLength ? formatBytes(contentLength) : 'Web', encoding: importFormat })
+      persistImportedDataset(dataset, sourceAtLoad, importFormat)
+      setLoaded(true)
+      toast(`Base baixada e salva: ${parsed.totalRows.toLocaleString('pt-BR')} registros`, 'success')
+    } catch (error) {
+      const message = `${error?.message ?? 'Falha ao baixar a base'}. Se o site bloquear CORS, baixe o arquivo pelo navegador e importe localmente.`
+      setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
+      setParseError(message)
+      setLoaded(false)
+      toast('Não foi possível baixar a base da web', 'error')
+    } finally {
+      setLoading(false)
+      setDownloadingWeb(false)
+    }
+  }
+
   function loadFile(file) {
+    const sourceAtLoad = selectedSource
     setFileName(file.name)
     setLoading(true)
     setLoaded(false)
@@ -155,16 +383,17 @@ export default function Dados() {
             delimiter: parsed.delimiter,
           })
           setFileMeta({ size: formatBytes(file.size), encoding: 'XLSX' })
-          setImportedDataset({
+          persistImportedDataset({
             fileName: file.name,
-            sourceType: 'Arquivo XLSX',
+            sourceType: sourceTypeForImport('XLSX', sourceAtLoad),
             columns: parsed.columns,
             rows: parsed.rows,
             totalRows: parsed.totalRows,
             delimiter: parsed.delimiter,
             sheetName: parsed.sheetName,
             importedAt: new Date().toISOString(),
-          })
+            ...selectedReferenceMetadata(sourceAtLoad),
+          }, sourceAtLoad, 'XLSX')
           setLoaded(true)
           toast(`Planilha importada: ${parsed.totalRows.toLocaleString('pt-BR')} registros`, 'success')
         })
@@ -178,12 +407,13 @@ export default function Dados() {
     }
 
     if (!isCsvLike(file)) {
+      const unsupported = format || sourceAtLoad?.preferredFormat || 'Formato'
+      const message = `${unsupported} ainda não tem parser no app web. Converta para CSV/XLSX/COMTRADE ou use a versão MATLAB quando aplicável.`
       setParsedData({ columns: [], rows: [], totalRows: 0, delimiter: '' })
-      setTimeout(() => {
-        setLoading(false)
-        setLoaded(true)
-        toast('Formato carregado com prévia simulada. CSV possui prévia real nesta versão.', 'info')
-      }, 700)
+      setParseError(message)
+      setLoading(false)
+      setLoaded(false)
+      toast(message, 'warning')
       return
     }
 
@@ -197,15 +427,16 @@ export default function Dados() {
           totalRows: parsed.totalRows,
           delimiter: parsed.delimiter,
         })
-        setImportedDataset({
+        persistImportedDataset({
           fileName: file.name,
-          sourceType: 'Arquivo CSV',
+          sourceType: sourceTypeForImport('CSV', sourceAtLoad),
           columns: parsed.columns,
           rows: parsed.rows,
           totalRows: parsed.totalRows,
           delimiter: parsed.delimiter,
           importedAt: new Date().toISOString(),
-        })
+          ...selectedReferenceMetadata(sourceAtLoad),
+        }, sourceAtLoad, 'CSV')
         setLoaded(true)
         toast(`CSV importado: ${parsed.totalRows.toLocaleString('pt-BR')} registros`, 'success')
       } catch (error) {
@@ -228,6 +459,7 @@ export default function Dados() {
     const files = Array.from(fileList ?? [])
     if (!files.length) return
 
+    const sourceAtLoad = selectedSource
     const cfg = findByExtension(files, ['.cfg'])
     const dat = findByExtension(files, ['.dat'])
     if (cfg || dat) {
@@ -246,14 +478,18 @@ export default function Dados() {
 
       try {
         const [cfgText, datText] = await Promise.all([readFileText(cfg), readFileText(dat)])
-        const dataset = parseComtradeFiles({ cfgText, datText, cfgName: cfg.name, datName: dat.name })
+        const dataset = {
+          ...parseComtradeFiles({ cfgText, datText, cfgName: cfg.name, datName: dat.name }),
+          sourceType: sourceTypeForImport('COMTRADE', sourceAtLoad),
+          ...selectedReferenceMetadata(sourceAtLoad),
+        }
         setParsedData({
           columns: dataset.columns,
           rows: dataset.rows.slice(0, 5000),
           totalRows: dataset.totalRows,
           delimiter: dataset.delimiter,
         })
-        setImportedDataset(dataset)
+        persistImportedDataset(dataset, sourceAtLoad, 'COMTRADE')
         setLoaded(true)
         toast(`COMTRADE importado: ${dataset.totalRows.toLocaleString('pt-BR')} amostras`, 'success')
       } catch (error) {
@@ -320,6 +556,8 @@ export default function Dados() {
   const recordsLabel = hasParsedData ? parsedData.totalRows.toLocaleString('pt-BR') : '864.000'
   const columnsLabel = hasParsedData ? parsedData.columns.length.toLocaleString('pt-BR') : '10'
   const delimiterLabel = hasParsedData ? (parsedData.delimiter === '\t' ? 'Tab' : parsedData.delimiter) : 'Detectado'
+  const selectedStoredRecord = datasetRecords.find(record => record.sourceId === selectedSource?.id)
+  const selectedStoredCount = datasetRecords.filter(record => record.sourceId === selectedSource?.id).length
   const cleanExportRows = importedDataset?.rows?.length ? importedDataset.rows : hasParsedData ? parsedData.rows : PREVIEW_ROWS
   const chartData = useMemo(() => {
     if (!hasParsedData) return WAVE
@@ -359,19 +597,25 @@ export default function Dados() {
             <button className="btn btn-subtle btn-sm" style={{ marginLeft: 'auto' }} onClick={() => toast('Funcionalidade de adicionar fonte disponível na versão completa', 'info')}>+ Adicionar</button>
           </div>
           <div className="panel__body scroll-y" style={{ height: 'calc(100% - 38px)', overflow: 'auto' }}>
-            {GROUPS.map(group => (
+            {DATA_SOURCE_GROUPS.map(group => (
               <div key={group} style={{ marginBottom: 12 }}>
                 <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{group}</div>
-                {SOURCES_LIST.filter(s => s.group === group).map(s => (
-                  <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: 12, cursor: 'pointer', borderRadius: 5 }}
-                    onClick={() => simulateLoad(s.name + '_export.csv')}>
-                    <span style={{ width: 18, color: '#1d4ed8' }}>▣</span>
-                    <span style={{ flex: 1 }}>{s.name}</span>
-                    <span style={{ width: 8, height: 8, borderRadius: 8, background: s.color }} />
-                    <span style={{ color: '#64748b', fontSize: 10 }}>{s.status}</span>
-                  </div>
-                ))}
-                {SOURCES_LIST.filter(s => s.group === group).length === 0 && (
+                {DATA_SOURCE_CATALOG.filter(s => s.group === group).map(s => {
+                  const storedCount = datasetRecords.filter(record => record.sourceId === s.id).length
+                  return (
+                    <div key={s.id} className={`data-source-row${selectedSource?.id === s.id ? ' active' : ''}`}
+                      onClick={() => handleSelectSource(s)}>
+                      <span className="data-source-row__icon" style={{ color: s.color }}>▣</span>
+                      <span className="data-source-row__copy">
+                        <span className="data-source-row__name">{s.name}</span>
+                        <span className="data-source-row__meta">{s.focus}</span>
+                      </span>
+                      {storedCount > 0 && <span className="badge badge-green">{storedCount} BD</span>}
+                      <span className={s.lineage?.includes('Demo') ? 'badge badge-yellow' : s.lineage?.includes('Real') ? 'badge badge-green' : 'badge badge-blue'}>{s.status}</span>
+                    </div>
+                  )
+                })}
+                {DATA_SOURCE_CATALOG.filter(s => s.group === group).length === 0 && (
                   <div style={{ color: '#94a3b8', fontSize: 11, paddingLeft: 26 }}>Nenhuma fonte configurada</div>
                 )}
               </div>
@@ -428,14 +672,52 @@ export default function Dados() {
                 <>
                   <div className="drop-zone__title">Arraste e solte arquivos aqui ou clique para selecionar</div>
                   <div className="drop-zone__sub">
-                    {format ? `Formato selecionado: ${format}` : 'CSV, XLSX, MAT, TDMS, COMTRADE ou banco SQL'}
+                    {format ? `Formato selecionado: ${format}` : 'CSV, XLSX, MAT, TDMS, COMTRADE, PQDIF ou banco SQL'}
                   </div>
+                  {parseError && <div style={{ color: 'var(--c-danger)', fontSize: 11, marginBottom: 8 }}>{parseError}</div>}
                   <button className="btn btn-primary" onClick={e => { e.stopPropagation(); fileInputRef.current?.click() }}>Selecionar Arquivos</button>
                 </>
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8, marginTop: 10 }}>
+            {selectedSource && (
+              <div className="source-reference-strip">
+                <span className={selectedSource.lineage?.includes('Demo') ? 'badge badge-yellow' : selectedSource.lineage?.includes('Real') ? 'badge badge-green' : 'badge badge-blue'}>
+                  {selectedSource.lineage}
+                </span>
+                <strong>{selectedSource.name}</strong>
+                <span className="source-reference-strip__summary">{selectedSource.expectedColumns || selectedSource.focus}</span>
+                {selectedSource.url && (
+                  <a href={selectedSource.url} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>referência</a>
+                )}
+                <div className="source-reference-strip__web" onClick={event => event.stopPropagation()}>
+                  <input
+                    className="form-input"
+                    value={downloadUrl}
+                    onChange={event => setDownloadUrl(event.target.value)}
+                    placeholder="URL direta CSV/XLSX"
+                    aria-label="URL direta para baixar base de dados"
+                  />
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    disabled={downloadingWeb || !downloadUrl.trim()}
+                    onClick={handleDownloadFromWeb}
+                    title={selectedSource.downloadHint || 'Baixar CSV/XLSX e salvar no banco local'}
+                  >
+                    {downloadingWeb ? 'Baixando...' : 'Baixar da web'}
+                  </button>
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={!selectedStoredRecord}
+                  onClick={handleLoadFromRegistry}
+                >
+                  Carregar do banco
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(88px,1fr))', gap: 8, marginTop: 10 }}>
               {FORMATS.map(f => (
                 <button key={f}
                   className={`btn ${f === format ? 'btn-primary' : 'btn-ghost'}`}
@@ -535,12 +817,21 @@ export default function Dados() {
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
         <DadosInfoPanel title="Metadados do Arquivo" rows={[
           ['Arquivo', loaded ? fileName : '—'],
-          ['Origem', hasParsedData ? 'Arquivo local' : 'Local'],
+          ['Origem', hasParsedData ? 'Arquivo local' : selectedSource?.group ?? '—'],
           ['Tamanho', loaded ? (fileMeta.size || '128,4 MB') : '—'],
           ['Registros', loaded ? recordsLabel : '—'],
           ['Colunas', loaded ? columnsLabel : '—'],
           ['Separador', loaded ? delimiterLabel : '—'],
           ['Codificação', fileMeta.encoding || 'UTF-8'],
+          ['Linhagem', selectedSource?.lineage ?? '—'],
+          ['Referência', selectedSource?.citation ?? '—'],
+        ]} />
+
+        <DadosInfoPanel title="Banco de Bases" rows={[
+          ['Estado', registryStatus],
+          ['Catálogo', `${DATA_SOURCE_CATALOG.length.toLocaleString('pt-BR')} referências`],
+          ['Salvas', datasetRecords.length.toLocaleString('pt-BR')],
+          ['Selecionada', selectedStoredCount ? `${selectedStoredCount} registro(s)` : 'sem dados salvos'],
         ]} />
 
         <div className="panel">

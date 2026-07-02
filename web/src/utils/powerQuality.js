@@ -4,6 +4,47 @@ const HARMONIC_ORDERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19, 
 const INTERHARMONIC_ORDERS = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 15.5, 17.5, 19.5, 21.5, 23.5, 24.5]
 const PHASES = ['A', 'B', 'C']
 const DEFAULT_FREQ = 60
+const DEMO_PROFILES = {
+  industrial: {
+    fileName: 'dados_demo_industrial.csv',
+    nominalVoltage: 220,
+    nominalCurrent: 118,
+    activePowerBase: 27.8,
+    reactivePowerBase: 11.6,
+    currentScale: [1, 0.96, 1.04],
+    voltageScale: [1, 1, 0.99],
+    fpBase: 0.914,
+    sagWindows: [[2.8, 4.1], [9.2, 10.1]],
+    swellWindows: [[5.6, 6.2], [12.3, 12.9]],
+    transients: [[7.4, 0.0007, 1.1], [13.1, 0.0009, 0.95]],
+  },
+  comercial: {
+    fileName: 'dados_demo_comercial.csv',
+    nominalVoltage: 220,
+    nominalCurrent: 62,
+    activePowerBase: 12.4,
+    reactivePowerBase: 4.3,
+    currentScale: [1, 0.98, 1.01],
+    voltageScale: [1, 0.998, 1.002],
+    fpBase: 0.947,
+    sagWindows: [[3.4, 3.9], [10.7, 11.2]],
+    swellWindows: [[6.5, 6.9], [13.4, 13.8]],
+    transients: [[5.9, 0.0012, 0.65], [11.8, 0.001, 0.7]],
+  },
+  hospitalar: {
+    fileName: 'dados_demo_hospitalar.csv',
+    nominalVoltage: 220,
+    nominalCurrent: 84,
+    activePowerBase: 18.9,
+    reactivePowerBase: 6.2,
+    currentScale: [1, 0.99, 1.02],
+    voltageScale: [1, 1, 1],
+    fpBase: 0.968,
+    sagWindows: [[4.8, 5.0]],
+    swellWindows: [[9.6, 9.85]],
+    transients: [[8.2, 0.001, 0.52]],
+  },
+}
 const DEFAULT_LIMITS = {
   thdV: 5,
   thdI: 8,
@@ -21,15 +62,15 @@ const DEFAULT_LIMITS = {
 
 const COLUMN_ALIASES = {
   timestamp: ['timestamp', 'datahora', 'datahorario', 'datetime', 'date', 'time', 'tempo', 'data'],
-  va: ['va', 'vakv', 'vav', 'v_a', 'tensaoa', 'tensaofa', 'voltagea', 'v1'],
+  va: ['va', 'vakv', 'vav', 'v_a', 'v', 'vrms', 'voltage', 'tensao', 'tensaoa', 'tensaofa', 'voltagea', 'v1'],
   vb: ['vb', 'vbkv', 'vbv', 'v_b', 'tensaob', 'tensaofb', 'voltageb', 'v2'],
   vc: ['vc', 'vckv', 'vcv', 'v_c', 'tensaoc', 'tensaofc', 'voltagec', 'v3'],
-  ia: ['ia', 'iaa', 'i_a', 'correntea', 'currenta', 'i1'],
+  ia: ['ia', 'iaa', 'i_a', 'i', 'irms', 'current', 'corrente', 'correntea', 'currenta', 'i1'],
   ib: ['ib', 'iba', 'i_b', 'correnteb', 'currentb', 'i2'],
   ic: ['ic', 'ica', 'i_c', 'correntec', 'currentc', 'i3'],
-  freq: ['freq', 'freqhz', 'frequencia', 'frequenciahz', 'frequency', 'frequencyhz', 'f'],
-  p: ['p', 'pkw', 'potenciaativa', 'potenciaativakw', 'activepower', 'kw'],
-  q: ['q', 'qkvar', 'potenciareativa', 'potenciareativakvar', 'reactivepower', 'kvar'],
+  freq: ['freq', 'freqhz', 'frequencia', 'frequenciahz', 'frequency', 'frequencyhz', 'gridfrequency', 'f'],
+  p: ['p', 'pkw', 'pw', 'potenciaativa', 'potenciaativakw', 'activepower', 'realpower', 'power', 'watts', 'w', 'kw'],
+  q: ['q', 'qkvar', 'qvar', 'potenciareativa', 'potenciareativakvar', 'reactivepower', 'reactive', 'var', 'kvar'],
   fp: ['fp', 'pf', 'cosphi', 'fatorpotencia', 'powerfactor'],
 }
 
@@ -166,15 +207,33 @@ function inferScale(column, values, kind) {
   return 1
 }
 
+function inferPowerScale(column) {
+  const name = normalizeLabel(column)
+  if (name.includes('mw')) return 1000
+  if (name.includes('kw')) return 1
+  if (name.includes('kvar')) return 1
+  if (name.includes('w') || name.includes('watt') || name.includes('var') || name === 'power') return 0.001
+  return 1
+}
+
 function toFixedNumber(value, digits = 4) {
   return Number.isFinite(value) ? +value.toFixed(digits) : 0
+}
+
+function toOptionalNumber(value, digits = 4) {
+  return Number.isFinite(value) ? +value.toFixed(digits) : NaN
 }
 
 function isInstantaneous(values) {
   const clean = values.filter(Number.isFinite)
   if (clean.length < 12) return false
-  const min = Math.min(...clean)
-  const max = Math.max(...clean)
+  let min = clean[0]
+  let max = clean[0]
+  for (let i = 1; i < clean.length; i += 1) {
+    const value = clean[i]
+    if (value < min) min = value
+    if (value > max) max = value
+  }
   const maxAbs = Math.max(Math.abs(min), Math.abs(max))
   return min < -0.15 * maxAbs && max > 0.15 * maxAbs
 }
@@ -185,6 +244,10 @@ function channelRms(values) {
 
 function channelAverage(values) {
   return mean(values.map(value => Math.abs(value)))
+}
+
+function withinWindows(time, windows) {
+  return windows.some(([start, end]) => time > start && time < end)
 }
 
 function inferNominalVoltage(values) {
@@ -288,7 +351,13 @@ function bucketRows(rows, maxPoints = 96) {
 }
 
 function bucketChannel(bucket, key) {
-  return channelRms(bucket.map(row => row[key]).filter(Number.isFinite))
+  const values = bucket.map(row => row[key]).filter(Number.isFinite)
+  return values.length ? channelRms(values) : NaN
+}
+
+function optionalMean(values) {
+  const clean = values.filter(Number.isFinite)
+  return clean.length ? mean(clean) : NaN
 }
 
 function estimatePstSeries(rmsSeries, nominalVoltage) {
@@ -313,19 +382,21 @@ function buildRmsSeries(rows, nominalVoltage) {
       label: formatDateLabel(first.timestamp, index),
       timestamp: first.timestamp,
       durationMs: Math.max(1, last.timestamp - first.timestamp),
-      Va: toFixedNumber(bucketChannel(bucket, 'va'), 3),
-      Vb: toFixedNumber(bucketChannel(bucket, 'vb'), 3),
-      Vc: toFixedNumber(bucketChannel(bucket, 'vc'), 3),
-      Ia: toFixedNumber(bucketChannel(bucket, 'ia'), 3),
-      Ib: toFixedNumber(bucketChannel(bucket, 'ib'), 3),
-      Ic: toFixedNumber(bucketChannel(bucket, 'ic'), 3),
-      freq: toFixedNumber(mean(bucket.map(row => row.freq).filter(Number.isFinite)), 4),
-      fp: toFixedNumber(mean(bucket.map(row => row.fp).filter(Number.isFinite)), 4),
-      pKw: toFixedNumber(mean(bucket.map(row => row.p).filter(Number.isFinite)), 4),
-      qKvar: toFixedNumber(mean(bucket.map(row => row.q).filter(Number.isFinite)), 4),
+      Va: toOptionalNumber(bucketChannel(bucket, 'va'), 3),
+      Vb: toOptionalNumber(bucketChannel(bucket, 'vb'), 3),
+      Vc: toOptionalNumber(bucketChannel(bucket, 'vc'), 3),
+      Ia: toOptionalNumber(bucketChannel(bucket, 'ia'), 3),
+      Ib: toOptionalNumber(bucketChannel(bucket, 'ib'), 3),
+      Ic: toOptionalNumber(bucketChannel(bucket, 'ic'), 3),
+      freq: toOptionalNumber(optionalMean(bucket.map(row => row.freq)), 4),
+      fp: toOptionalNumber(optionalMean(bucket.map(row => row.fp)), 4),
+      pKw: toOptionalNumber(optionalMean(bucket.map(row => row.p)), 4),
+      qKvar: toOptionalNumber(optionalMean(bucket.map(row => row.q)), 4),
     }
-    point.Vavg = toFixedNumber(mean([point.Va, point.Vb, point.Vc].filter(value => value > 0)), 3)
-    point.Iavg = toFixedNumber(mean([point.Ia, point.Ib, point.Ic].filter(value => value > 0)), 3)
+    const voltages = [point.Va, point.Vb, point.Vc].filter(value => Number.isFinite(value) && value > 0)
+    const currents = [point.Ia, point.Ib, point.Ic].filter(value => Number.isFinite(value) && value > 0)
+    point.Vavg = voltages.length ? toFixedNumber(mean(voltages), 3) : NaN
+    point.Iavg = currents.length ? toFixedNumber(mean(currents), 3) : NaN
     return point
   })
   return estimatePstSeries(base, nominalVoltage)
@@ -627,23 +698,32 @@ function addIndexEvents(events, analysis) {
 
 function complianceChecks(summary) {
   const limits = summary.limits ?? DEFAULT_LIMITS
+  const availability = summary.dataAvailability ?? {}
+  const check = (name, value, limit, ok, available = true) => ({
+    name,
+    value,
+    limit,
+    applicable: Boolean(available) && Number.isFinite(value),
+    ok: Boolean(available) && Number.isFinite(value) ? ok : null,
+  })
   return [
-    { name: 'Tensão RMS', value: summary.voltageCompliancePct, limit: '90-110% Vnom', ok: summary.voltageCompliancePct >= 95 },
-    { name: 'THD-V', value: summary.thdVAvg, limit: `<= ${limits.thdV}%`, ok: summary.thdVAvg <= limits.thdV },
-    { name: 'THD-I', value: summary.thdIAvg, limit: `<= ${limits.thdI}%`, ok: summary.thdIAvg <= limits.thdI },
-    { name: 'Inter-harmônicas V', value: summary.interharmonicVMax, limit: `<= ${limits.interharmonicV}%`, ok: summary.interharmonicVMax <= limits.interharmonicV },
-    { name: 'Inter-harmônicas I', value: summary.interharmonicIMax, limit: `<= ${limits.interharmonicI}%`, ok: summary.interharmonicIMax <= limits.interharmonicI },
-    { name: 'Transitórios', value: summary.transientCount, limit: '0 eventos', ok: summary.transientCount === 0 },
-    { name: 'Desequilíbrio', value: summary.unbalance, limit: `<= ${limits.unbalance}%`, ok: summary.unbalance <= limits.unbalance },
-    { name: 'Flicker Pst95', value: summary.pst95, limit: `<= ${limits.pst}`, ok: summary.pst95 <= limits.pst },
-    { name: 'Frequência', value: summary.freqAvg, limit: `${limits.freqMin}-${limits.freqMax} Hz`, ok: summary.freqAvg >= limits.freqMin && summary.freqAvg <= limits.freqMax },
-    { name: 'Fator de potência', value: summary.fpAvg, limit: `>= ${limits.fp}`, ok: summary.fpAvg >= limits.fp },
+    check('Tensão RMS', summary.voltageCompliancePct, '90-110% Vnom', summary.voltageCompliancePct >= 95, availability.voltage),
+    check('THD-V', summary.thdVAvg, `<= ${limits.thdV}%`, summary.thdVAvg <= limits.thdV, availability.voltage),
+    check('THD-I', summary.thdIAvg, `<= ${limits.thdI}%`, summary.thdIAvg <= limits.thdI, availability.current),
+    check('Inter-harmônicas V', summary.interharmonicVMax, `<= ${limits.interharmonicV}%`, summary.interharmonicVMax <= limits.interharmonicV, availability.voltage),
+    check('Inter-harmônicas I', summary.interharmonicIMax, `<= ${limits.interharmonicI}%`, summary.interharmonicIMax <= limits.interharmonicI, availability.current),
+    check('Transitórios', summary.transientCount, '0 eventos', summary.transientCount === 0, availability.voltage),
+    check('Desequilíbrio', summary.unbalance, `<= ${limits.unbalance}%`, summary.unbalance <= limits.unbalance, availability.voltage),
+    check('Flicker Pst95', summary.pst95, `<= ${limits.pst}`, summary.pst95 <= limits.pst, availability.voltage),
+    check('Frequência', summary.freqAvg, `${limits.freqMin}-${limits.freqMax} Hz`, summary.freqAvg >= limits.freqMin && summary.freqAvg <= limits.freqMax, availability.frequency),
+    check('Fator de potência', summary.fpAvg, `>= ${limits.fp}`, summary.fpAvg >= limits.fp),
   ]
 }
 
 function buildConformity(summary) {
   const checks = complianceChecks(summary)
-  const checkScore = checks.filter(check => check.ok).length / checks.length
+  const applicable = checks.filter(check => check.applicable)
+  const checkScore = applicable.length ? applicable.filter(check => check.ok).length / applicable.length : 1
   const eventPenalty = clamp(summary.eventsCount / Math.max(1, summary.sampleCount), 0, 0.35)
   const score = clamp((checkScore - eventPenalty) * 100, 0, 100)
   return {
@@ -730,16 +810,20 @@ function buildPhasors(rows, frequency, voltageStats, currentStats) {
 function buildPower(rows, phasors, summary) {
   const pValues = rows.map(row => row.p).filter(Number.isFinite)
   const qValues = rows.map(row => row.q).filter(Number.isFinite)
-  const pKw = pValues.length ? mean(pValues) : (phasors.Va.mag * phasors.Ia.mag + phasors.Vb.mag * phasors.Ib.mag + phasors.Vc.mag * phasors.Ic.mag) * summary.fpAvg / 1000
-  const qKvar = qValues.length ? mean(qValues) : pKw * Math.tan(Math.acos(clamp(summary.fpAvg, 0, 1)))
-  const sKva = Math.sqrt(pKw * pKw + qKvar * qKvar)
+  const estimatedP = (phasors.Va.mag * phasors.Ia.mag + phasors.Vb.mag * phasors.Ib.mag + phasors.Vc.mag * phasors.Ic.mag) * summary.fpAvg / 1000
+  const pKw = pValues.length ? mean(pValues) : Number.isFinite(estimatedP) ? estimatedP : NaN
+  const estimatedQ = Number.isFinite(pKw) && Number.isFinite(summary.fpAvg)
+    ? pKw * Math.tan(Math.acos(clamp(summary.fpAvg, 0, 1)))
+    : NaN
+  const qKvar = qValues.length ? mean(qValues) : estimatedQ
+  const sKva = Number.isFinite(pKw) && Number.isFinite(qKvar) ? Math.sqrt(pKw * pKw + qKvar * qKvar) : NaN
   return {
-    pKw: toFixedNumber(pKw, 2),
-    qKvar: toFixedNumber(qKvar, 2),
-    sKva: toFixedNumber(sKva, 2),
-    fp: toFixedNumber(sKva > 0 ? Math.abs(pKw) / sKva : summary.fpAvg, 4),
-    distortionKva: toFixedNumber(sKva * (summary.thdIAvg / 100), 2),
-    displacementFp: toFixedNumber(Math.cos(Math.atan2(qKvar, pKw || 1)), 4),
+    pKw: toOptionalNumber(pKw, 2),
+    qKvar: toOptionalNumber(qKvar, 2),
+    sKva: toOptionalNumber(sKva, 2),
+    fp: toOptionalNumber(sKva > 0 ? Math.abs(pKw) / sKva : summary.fpAvg, 4),
+    distortionKva: toOptionalNumber(sKva * (summary.thdIAvg / 100), 2),
+    displacementFp: toOptionalNumber(Math.cos(Math.atan2(qKvar, pKw || 1)), 4),
   }
 }
 
@@ -835,54 +919,64 @@ function buildMeasurementProfile(rows, sampleRate, frequency, nominalVoltage, rm
 }
 
 function buildPhaseResult(phase, voltageValues, currentValues, timestamps, frequency, fallbackThdV, fallbackThdI) {
-  const vRms = channelRms(voltageValues)
-  const iRms = channelRms(currentValues)
-  const vHarmonics = harmonicSpectrum(voltageValues, timestamps, frequency, 'voltage') ?? fallbackHarmonics(fallbackThdV, vRms || 1, 'voltage')
-  const iHarmonics = harmonicSpectrum(currentValues, timestamps, frequency, 'current') ?? fallbackHarmonics(fallbackThdI, iRms || 1, 'current')
-  const interharmonics = interharmonicSpectrum(voltageValues, timestamps, frequency, 'voltage')
-  const currentInterharmonics = interharmonicSpectrum(currentValues, timestamps, frequency, 'current')
+  const hasVoltage = voltageValues.some(Number.isFinite)
+  const hasCurrent = currentValues.some(Number.isFinite)
+  const vRms = hasVoltage ? channelRms(voltageValues) : NaN
+  const iRms = hasCurrent ? channelRms(currentValues) : NaN
+  const vHarmonics = hasVoltage
+    ? harmonicSpectrum(voltageValues, timestamps, frequency, 'voltage') ?? fallbackHarmonics(fallbackThdV, vRms || 1, 'voltage')
+    : []
+  const iHarmonics = hasCurrent
+    ? harmonicSpectrum(currentValues, timestamps, frequency, 'current') ?? fallbackHarmonics(fallbackThdI, iRms || 1, 'current')
+    : []
+  const interharmonics = hasVoltage ? interharmonicSpectrum(voltageValues, timestamps, frequency, 'voltage') : []
+  const currentInterharmonics = hasCurrent ? interharmonicSpectrum(currentValues, timestamps, frequency, 'current') : []
   return {
     phase,
-    vrms: toFixedNumber(vRms, 3),
-    irms: toFixedNumber(iRms, 3),
-    thdV: toFixedNumber(calcTHD(vHarmonics), 3),
-    thdI: toFixedNumber(calcTHD(iHarmonics), 3),
+    vrms: toOptionalNumber(vRms, 3),
+    irms: toOptionalNumber(iRms, 3),
+    thdV: hasVoltage ? toFixedNumber(calcTHD(vHarmonics), 3) : NaN,
+    thdI: hasCurrent ? toFixedNumber(calcTHD(iHarmonics), 3) : NaN,
     harmonics: vHarmonics,
     currentHarmonics: iHarmonics,
     interharmonics,
     currentInterharmonics,
     interharmonicVMax: toFixedNumber(maxSpectrumPct(interharmonics), 3),
     interharmonicIMax: toFixedNumber(maxSpectrumPct(currentInterharmonics), 3),
-    waveformBased: isInstantaneous(voltageValues),
+    waveformBased: hasVoltage && isInstantaneous(voltageValues),
   }
 }
 
-function buildDefaultRows() {
+function buildDefaultRows(profileName = 'industrial') {
   const sampleRate = 3840
-  const duration = 2
+  const duration = 15
   const count = sampleRate * duration
   const base = new Date(2024, 4, 31, 14, 20, 0).getTime()
-  const vRms = 220
-  const iRms = 118
+  const profile = DEMO_PROFILES[profileName] ?? DEMO_PROFILES.industrial
+  const vRms = profile.nominalVoltage
+  const iRms = profile.nominalCurrent
   const rows = []
   for (let i = 0; i < count; i += 1) {
     const t = i / sampleRate
     const timestamp = base + t * 1000
-    const sagB = t > 0.7 && t < 0.96 ? 0.64 : 1
-    const swellA = t > 1.28 && t < 1.36 ? 1.16 : 1
-    const transientA = Math.exp(-(((t - 1.55) / 0.0007) ** 2)) * vRms * Math.SQRT2 * 1.1
+    const sagB = withinWindows(t, profile.sagWindows) ? 0.64 : 1
+    const swellA = withinWindows(t, profile.swellWindows) ? 1.16 : 1
+    const transientA = profile.transients.reduce((sum, [center, width, gain]) => (
+      sum + Math.exp(-(((t - center) / width) ** 2)) * vRms * Math.SQRT2 * gain
+    ), 0)
     const flicker = 1 + 0.006 * Math.sin(2 * Math.PI * 8.8 * t)
     const angle = 2 * Math.PI * DEFAULT_FREQ * t
     const harmonic = theta => 0.028 * Math.sin(5 * theta + 0.2) + 0.019 * Math.sin(7 * theta - 0.5) + 0.008 * Math.sin(11 * theta)
     const currentHarmonic = theta => 0.07 * Math.sin(5 * theta - 0.4) + 0.04 * Math.sin(7 * theta + 0.1)
     const va = vRms * Math.SQRT2 * swellA * flicker * (Math.sin(angle) + harmonic(angle)) + transientA
-    const vb = vRms * Math.SQRT2 * sagB * flicker * (Math.sin(angle - 2 * Math.PI / 3) + harmonic(angle - 2 * Math.PI / 3))
-    const vc = vRms * Math.SQRT2 * 0.99 * flicker * (Math.sin(angle + 2 * Math.PI / 3) + harmonic(angle + 2 * Math.PI / 3))
-    const ia = iRms * Math.SQRT2 * (Math.sin(angle - 0.43) + currentHarmonic(angle))
-    const ib = iRms * Math.SQRT2 * 0.96 * (Math.sin(angle - 2 * Math.PI / 3 - 0.47) + currentHarmonic(angle - 2 * Math.PI / 3))
-    const ic = iRms * Math.SQRT2 * 1.04 * (Math.sin(angle + 2 * Math.PI / 3 - 0.39) + currentHarmonic(angle + 2 * Math.PI / 3))
-    const pKw = 27.8 + 1.6 * Math.sin(2 * Math.PI * 0.18 * t) + 0.7 * Math.sin(2 * Math.PI * 0.42 * t)
-    const qKvar = 11.6 + 0.8 * Math.cos(2 * Math.PI * 0.15 * t) + 0.4 * Math.sin(2 * Math.PI * 0.31 * t)
+    const vb = vRms * Math.SQRT2 * sagB * profile.voltageScale[1] * flicker * (Math.sin(angle - 2 * Math.PI / 3) + harmonic(angle - 2 * Math.PI / 3))
+    const vc = vRms * Math.SQRT2 * profile.voltageScale[2] * flicker * (Math.sin(angle + 2 * Math.PI / 3) + harmonic(angle + 2 * Math.PI / 3))
+    const ia = iRms * Math.SQRT2 * profile.currentScale[0] * (Math.sin(angle - 0.43) + currentHarmonic(angle))
+    const ib = iRms * Math.SQRT2 * profile.currentScale[1] * (Math.sin(angle - 2 * Math.PI / 3 - 0.47) + currentHarmonic(angle - 2 * Math.PI / 3))
+    const ic = iRms * Math.SQRT2 * profile.currentScale[2] * (Math.sin(angle + 2 * Math.PI / 3 - 0.39) + currentHarmonic(angle + 2 * Math.PI / 3))
+    const pKw = profile.activePowerBase + 1.6 * Math.sin(2 * Math.PI * (t / 90)) + 0.7 * Math.sin(2 * Math.PI * (t / 33))
+    const qKvar = profile.reactivePowerBase + 0.8 * Math.cos(2 * Math.PI * (t / 105)) + 0.4 * Math.sin(2 * Math.PI * (t / 41))
+    const fp = clamp(profile.fpBase + 0.01 * Math.sin(2 * Math.PI * (t / 120)) - 0.006 * Math.cos(2 * Math.PI * (t / 44)), 0.82, 0.99)
     rows.push({
       timestamp,
       Va: toFixedNumber(va, 5),
@@ -892,7 +986,7 @@ function buildDefaultRows() {
       Ib: toFixedNumber(ib, 5),
       Ic: toFixedNumber(ic, 5),
       Freq_Hz: toFixedNumber(DEFAULT_FREQ + 0.025 * Math.sin(2 * Math.PI * 0.4 * t), 4),
-      FP: 0.914,
+      FP: toFixedNumber(fp, 4),
       P_kW: toFixedNumber(pKw, 4),
       Q_kVAr: toFixedNumber(qKvar, 4),
     })
@@ -929,6 +1023,7 @@ export function generateHarmonics(thdPct, fundamental = 100) {
 }
 
 export function voltageUnbalance(Va, Vb, Vc) {
+  if (![Va, Vb, Vc].every(Number.isFinite)) return NaN
   const Vavg = (Va + Vb + Vc) / 3
   if (!Vavg) return 0
   const maxDev = Math.max(Math.abs(Va - Vavg), Math.abs(Vb - Vavg), Math.abs(Vc - Vavg))
@@ -951,12 +1046,14 @@ export function energySeries(days = 31) {
   })
 }
 
-export function buildDemoPowerQualityDataset() {
+export function buildDemoPowerQualityDataset(profileName = 'industrial') {
+  const profile = DEMO_PROFILES[profileName] ?? DEMO_PROFILES.industrial
   return {
-    fileName: 'demo_qe_calculado.csv',
+    fileName: profile.fileName,
     sourceType: 'Demonstração calculada',
-    windowHours: 0.5,
-    rows: buildDefaultRows(),
+    windowHours: 2,
+    rows: buildDefaultRows(profileName),
+    demoProfile: profileName,
     importedAt: new Date().toISOString(),
   }
 }
@@ -990,12 +1087,16 @@ export function normalizePowerQualityRows(dataset) {
     ib: inferScale(map.ib, rawNumbers.map(item => item.ib).filter(Number.isFinite), 'current'),
     ic: inferScale(map.ic, rawNumbers.map(item => item.ic).filter(Number.isFinite), 'current'),
   }
+  const pScale = inferPowerScale(map.p)
+  const qScale = inferPowerScale(map.q)
 
   const normalized = rawNumbers.map((item, index) => {
     const timestamp = parseTimestamp(map.timestamp ? item.row[map.timestamp] : null, index)
+    const hasMeasuredValue = [item.va, item.vb, item.vc, item.ia, item.ib, item.ic, item.freq, item.p, item.q, item.fp].some(Number.isFinite)
     return {
       index,
       timestamp,
+      hasMeasuredValue,
       va: Number.isFinite(item.va) ? item.va * vScale.va : null,
       vb: Number.isFinite(item.vb) ? item.vb * vScale.vb : null,
       vc: Number.isFinite(item.vc) ? item.vc * vScale.vc : null,
@@ -1003,11 +1104,13 @@ export function normalizePowerQualityRows(dataset) {
       ib: Number.isFinite(item.ib) ? item.ib * iScale.ib : null,
       ic: Number.isFinite(item.ic) ? item.ic * iScale.ic : null,
       freq: Number.isFinite(item.freq) ? item.freq : DEFAULT_FREQ,
-      p: Number.isFinite(item.p) ? item.p : null,
-      q: Number.isFinite(item.q) ? item.q : null,
+      p: Number.isFinite(item.p) ? item.p * pScale : null,
+      q: Number.isFinite(item.q) ? item.q * qScale : null,
       fp: Number.isFinite(item.fp) ? item.fp : null,
     }
-  }).filter(row => [row.va, row.vb, row.vc, row.ia, row.ib, row.ic].some(Number.isFinite))
+  })
+    .filter(row => row.hasMeasuredValue)
+    .map(({ hasMeasuredValue, ...row }) => row)
 
   return {
     rows: normalized.length ? normalized : normalizePowerQualityRows(buildDemoPowerQualityDataset()).rows,
@@ -1016,6 +1119,12 @@ export function normalizePowerQualityRows(dataset) {
     sourceName: dataset?.fileName ?? 'demo_qe_calculado.csv',
     sourceType: dataset?.sourceType ?? (dataset?.rows?.length ? 'Arquivo importado' : 'Demonstração calculada'),
     sourceWindowHours: Number.isFinite(dataset?.windowHours) ? dataset.windowHours : null,
+    sourceReference: dataset?.sourceReference ?? null,
+    sourceLineage: dataset?.sourceLineage ?? (dataset?.rows?.length ? 'Arquivo importado' : 'Demo sintética'),
+    sourceCitation: dataset?.sourceCitation ?? null,
+    sourceUrl: dataset?.sourceUrl ?? null,
+    sourceFormat: dataset?.sourceFormat ?? null,
+    sourceFocus: dataset?.sourceFocus ?? null,
   }
 }
 
@@ -1037,6 +1146,10 @@ export function analyzePowerQuality(dataset = null) {
     B: rows.map(row => row.ib).filter(Number.isFinite),
     C: rows.map(row => row.ic).filter(Number.isFinite),
   }
+  const hasVoltageData = PHASES.some(phase => voltageValues[phase].length > 0)
+  const hasCurrentData = PHASES.some(phase => currentValues[phase].length > 0)
+  const hasPowerData = rows.some(row => Number.isFinite(row.p) || Number.isFinite(row.q) || Number.isFinite(row.fp))
+  const hasFrequencyData = freqValues.length > 0
 
   const nominalVoltage = inferNominalVoltage([...voltageValues.A, ...voltageValues.B, ...voltageValues.C])
   const standardLimits = {
@@ -1044,8 +1157,14 @@ export function analyzePowerQuality(dataset = null) {
     thdV: voltageThdLimit(nominalVoltage),
     thdI: currentThdLimit(50),
   }
-  const voltageStats = Object.fromEntries(PHASES.map(phase => [phase, { rms: channelRms(voltageValues[phase]), avg: channelAverage(voltageValues[phase]) }]))
-  const currentStats = Object.fromEntries(PHASES.map(phase => [phase, { rms: channelRms(currentValues[phase]), avg: channelAverage(currentValues[phase]) }]))
+  const voltageStats = Object.fromEntries(PHASES.map(phase => {
+    const values = voltageValues[phase]
+    return [phase, { rms: values.length ? channelRms(values) : NaN, avg: values.length ? channelAverage(values) : NaN }]
+  }))
+  const currentStats = Object.fromEntries(PHASES.map(phase => {
+    const values = currentValues[phase]
+    return [phase, { rms: values.length ? channelRms(values) : NaN, avg: values.length ? channelAverage(values) : NaN }]
+  }))
 
   const fallbackThdV = normalized.sourceType === 'Demonstração calculada' ? 4.1 : 2.5
   const fallbackThdI = normalized.sourceType === 'Demonstração calculada' ? 8.3 : 6.5
@@ -1075,17 +1194,18 @@ export function analyzePowerQuality(dataset = null) {
   const fpFromPower = rows
     .map(row => Number.isFinite(row.p) && Number.isFinite(row.q) ? Math.abs(row.p) / Math.sqrt(row.p * row.p + row.q * row.q) : null)
     .filter(Number.isFinite)
-  const fpAvg = mean(fpValues.length ? fpValues : fpFromPower) || 0.92
+  const fpAvg = fpValues.length || fpFromPower.length ? mean(fpValues.length ? fpValues : fpFromPower) : NaN
 
-  const voltageCompliancePct = rmsSeries.length
+  const voltageCompliancePct = hasVoltageData && rmsSeries.length
     ? 100 * rmsSeries.filter(point => {
       const values = [point.Va, point.Vb, point.Vc].filter(Number.isFinite)
+      if (!values.length) return false
       return values.every(value => {
         const pu = nominalVoltage > 0 ? value / nominalVoltage : 1
         return pu >= DEFAULT_LIMITS.voltageMinPu && pu <= DEFAULT_LIMITS.voltageMaxPu
       })
     }).length / rmsSeries.length
-    : 100
+    : NaN
   const prodistVoltage = prodistVoltageSummary(rmsSeries, nominalVoltage)
 
   const baseSummary = {
@@ -1093,19 +1213,25 @@ export function analyzePowerQuality(dataset = null) {
     sampleRate: toFixedNumber(sampleRate, 2),
     freqAvg: toFixedNumber(frequency, 4),
     nominalVoltage: toFixedNumber(nominalVoltage, 3),
-    vrmsAvg: toFixedNumber(mean(PHASES.map(phase => voltageStats[phase].rms)), 3),
-    irmsAvg: toFixedNumber(mean(PHASES.map(phase => currentStats[phase].rms)), 3),
-    thdVAvg: toFixedNumber(thdVAvg, 3),
-    thdIAvg: toFixedNumber(thdIAvg, 3),
+    vrmsAvg: hasVoltageData ? toFixedNumber(mean(PHASES.map(phase => voltageStats[phase].rms)), 3) : NaN,
+    irmsAvg: hasCurrentData ? toFixedNumber(mean(PHASES.map(phase => currentStats[phase].rms)), 3) : NaN,
+    thdVAvg: hasVoltageData ? toFixedNumber(thdVAvg, 3) : NaN,
+    thdIAvg: hasCurrentData ? toFixedNumber(thdIAvg, 3) : NaN,
     interharmonicVMax: toFixedNumber(interharmonicVMax, 3),
     interharmonicIMax: toFixedNumber(interharmonicIMax, 3),
     transientCount: transientEvents.length,
     unbalance: toFixedNumber(unbalance, 3),
     pst95: toFixedNumber(pst95, 3),
-    fpAvg: toFixedNumber(fpAvg, 4),
-    voltageCompliancePct: toFixedNumber(voltageCompliancePct, 1),
+    fpAvg: Number.isFinite(fpAvg) ? toFixedNumber(fpAvg, 4) : NaN,
+    voltageCompliancePct: toOptionalNumber(voltageCompliancePct, 1),
     frequencyCompliancePct: measurement.frequencyCompliancePct,
     prodistVoltage,
+    dataAvailability: {
+      voltage: hasVoltageData,
+      current: hasCurrentData,
+      power: hasPowerData,
+      frequency: hasFrequencyData,
+    },
     limits: standardLimits,
     lastTimestamp: rows[rows.length - 1]?.timestamp ?? Date.now(),
   }
@@ -1140,6 +1266,12 @@ export function analyzePowerQuality(dataset = null) {
     sourceName: normalized.sourceName,
     sourceType: normalized.sourceType,
     sourceWindowHours: normalized.sourceWindowHours,
+    sourceReference: normalized.sourceReference,
+    sourceLineage: normalized.sourceLineage,
+    sourceCitation: normalized.sourceCitation,
+    sourceUrl: normalized.sourceUrl,
+    sourceFormat: normalized.sourceFormat,
+    sourceFocus: normalized.sourceFocus,
     imported: Boolean(dataset?.rows?.length),
     sampleCount: rows.length,
     sampleRate: summary.sampleRate,

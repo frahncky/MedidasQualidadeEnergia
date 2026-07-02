@@ -9,6 +9,7 @@ Princípios
 - Progressão pedagógica: priorizar o fluxo Dados -> Medidas -> Simulação -> Fasores -> Qualidade -> Energia -> Metrologia -> Relatórios.
 - Leitura orientada: gráficos e tabelas devem destacar unidade, referência nominal e limite normativo.
 - Transparência: quando um recurso for demonstrativo, isso deve ficar explícito para o usuário.
+- Rastreabilidade: bases reais, formatos IEEE e normas usadas na interpretação devem aparecer como metadados da importação.
 
 Diretrizes de interface
 - Usar títulos curtos e descrições técnicas com foco em aplicação prática.

@@ -264,7 +264,18 @@ function balanceRows(metrics) {
 }
 
 export default function EnergiaDemandaFP() {
-  const { installation: instalacao, setInstallation: setInstalacao, dateFrom, setDateFrom, dateTo, setDateTo, pqAnalysis, analysisStatus } = useAppContext()
+  const {
+    installation: instalacao,
+    setInstallation: setInstalacao,
+    resolvedInstallation,
+    hasDatasetInstallation,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    pqAnalysis,
+    analysisStatus,
+  } = useAppContext()
   const toast = useToast()
   const [tarifa, setTarifa] = useState('Grupo A4 Verde')
   const [fpAlvo, setFpAlvo] = useState('0,98')
@@ -279,6 +290,10 @@ export default function EnergiaDemandaFP() {
   const pie = costPie(metrics)
   const sectorRows = [['Sem medição setorial importada', 'N/D', 'N/D', 'N/D']]
   const compareRows = scenarioRows(metrics, metrics.fpAvg, fpTarget)
+  const installationOptions = useMemo(() => {
+    const options = [resolvedInstallation, instalacao, ...INSTALACOES].filter(Boolean)
+    return [...new Set(options)]
+  }, [resolvedInstallation, instalacao])
 
   function handleCalcular() {
     setShowEconomy(false)
@@ -308,9 +323,12 @@ export default function EnergiaDemandaFP() {
         <span style={{ color: '#64748b' }}>até</span>
         <input value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: 150 }} />
         <label>Instalação</label>
-        <select value={instalacao} onChange={e => setInstalacao(e.target.value)}>
-          {INSTALACOES.map(o => <option key={o}>{o}</option>)}
+        <select value={resolvedInstallation} onChange={e => setInstalacao(e.target.value)} disabled={hasDatasetInstallation}>
+          {installationOptions.map(o => <option key={o}>{o}</option>)}
         </select>
+        {hasDatasetInstallation && (
+          <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>instalação vinda da base</span>
+        )}
         <label>Tarifa</label>
         <select value={tarifa} onChange={e => setTarifa(e.target.value)}>
           {Object.keys(TARIFAS).map(o => <option key={o}>{o}</option>)}
@@ -330,7 +348,7 @@ export default function EnergiaDemandaFP() {
         <div className="result-panel result-panel--success" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
           <button onClick={() => setShowEconomy(false)} className="btn-close-panel">x</button>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>Análise de Economia — {instalacao}</div>
+            <div style={{ fontWeight: 800, fontSize: 13 }}>Análise de Economia — {resolvedInstallation}</div>
             <div style={{ fontSize: 11, marginTop: 4 }}>FP atual: <b>{fmt(metrics.fpAvg, 3)}</b> → FP alvo: <b>{fmt(fpTarget, 3)}</b></div>
           </div>
           {[

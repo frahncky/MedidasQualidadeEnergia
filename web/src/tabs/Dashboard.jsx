@@ -248,16 +248,36 @@ function buildKPI(analysis, stats) {
 }
 
 export default function Dashboard({ onNavigate }) {
-  const { installation, setInstallation, period, setPeriod, pqAnalysis, analysisStatus } = useAppContext()
+  const {
+    installation,
+    setInstallation,
+    loadType,
+    setLoadType,
+    resolvedInstallation,
+    resolvedLoadType,
+    hasDatasetInstallation,
+    hasDatasetLoadType,
+    period,
+    setPeriod,
+    pqAnalysis,
+    analysisStatus,
+  } = useAppContext()
   const toast = useToast()
-  const [loadType, setLoadType] = useState('Todas')
   const [loading, setLoading] = useState(false)
   const [seed, setSeed] = useState(0)
 
   const windowStats = useMemo(() => buildWindowStats(pqAnalysis), [pqAnalysis])
   const series = useMemo(() => buildSeries(period, pqAnalysis, windowStats), [period, seed, pqAnalysis, windowStats])
   const kpi = useMemo(() => buildKPI(pqAnalysis, windowStats), [pqAnalysis, windowStats])
-  const instInfo = INST_INFO_MAP[installation] ?? INST_INFO_MAP['Subestação Principal']
+  const instInfo = INST_INFO_MAP[resolvedInstallation] ?? INST_INFO_MAP['Subestação Principal']
+  const installationOptions = useMemo(() => {
+    const options = [resolvedInstallation, installation, ...INSTALLATIONS].filter(Boolean)
+    return [...new Set(options)]
+  }, [resolvedInstallation, installation])
+  const loadTypeOptions = useMemo(() => {
+    const options = [resolvedLoadType, loadType, ...LOAD_TYPES].filter(Boolean)
+    return [...new Set(options)]
+  }, [resolvedLoadType, loadType])
   const events = useMemo(() => pqAnalysis.events.slice(0, 8), [pqAnalysis.events])
   const harmonicData = useMemo(() => (pqAnalysis.phases['Fase A']?.harmonics ?? [])
     .filter(h => h.order <= 13)
@@ -291,13 +311,18 @@ export default function Dashboard({ onNavigate }) {
       {/* Filter bar */}
       <div className="filter-bar">
         <label>Instalação:</label>
-        <select value={installation} onChange={e => setInstallation(e.target.value)} style={{ width: 184 }}>
-          {INSTALLATIONS.map(i => <option key={i}>{i}</option>)}
+        <select value={resolvedInstallation} onChange={e => setInstallation(e.target.value)} style={{ width: 184 }} disabled={hasDatasetInstallation}>
+          {installationOptions.map(i => <option key={i}>{i}</option>)}
         </select>
         <label>Tipo de Carga:</label>
-        <select value={loadType} onChange={e => setLoadType(e.target.value)} style={{ width: 156 }}>
-          {LOAD_TYPES.map(l => <option key={l}>{l}</option>)}
+        <select value={resolvedLoadType} onChange={e => setLoadType(e.target.value)} style={{ width: 156 }} disabled={hasDatasetLoadType}>
+          {loadTypeOptions.map(l => <option key={l}>{l}</option>)}
         </select>
+        {(hasDatasetInstallation || hasDatasetLoadType) && (
+          <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            contexto vindo da base
+          </span>
+        )}
         <span style={{ fontSize: 11, color: basisColor, fontWeight: 700, whiteSpace: 'nowrap' }}>
           Janela: {fmtDuration(windowStats.windowHours)} · {dataBasis}
         </span>

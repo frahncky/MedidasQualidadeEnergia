@@ -19,9 +19,13 @@ executar_app
 - `src/+circuitos/`: validacao e calculos didaticos de circuitos, TC e TP.
 - `src/+relatorios/`: exportacao de tabelas e geracao de relatorios.
 - `dados/`: bases demonstrativas.
-- `docs/`: especificacao, mapa de abas e material de apoio.
+- `docs/`: especificacao, mapa de abas, bases reais de referencia e material de apoio.
 - `assets/`: imagens da interface e icone visual do SMQE.
 
 ## Observacao
 
 O editor e o simulador de circuitos sao didaticos. Eles ajudam a montar, validar e analisar casos principais, mas nao substituem SPICE, Simscape Electrical ou ferramentas equivalentes para topologias arbitrarias.
+
+## Bases reais
+
+A base local em `dados/` e demonstrativa. Para estudos com dados reais, consulte `docs/bases_reais_referencias.md`; a versao web cataloga bases abertas e referencias IEEE, importa CSV, XLSX e COMTRADE ASCII, e tambem baixa CSV/XLSX por URL direta para salvar no banco local do navegador.
