@@ -322,12 +322,6 @@ export default function Simulacao({ initialMode = 'ca', lockedMode = null, embed
   return (
     <div className={`sim-page${embedded ? ' sim-page--embedded' : ''}`}>
       <div className="sim-sidebar">
-        {!embedded && (
-          <div className="guidance-card">
-            <strong>Função desta aba</strong>
-            <span>Variar parâmetros e observar corrente, potência, FP e natureza da carga. Para montagem esquemática completa, use a aba Editor.</span>
-          </div>
-        )}
         <div className="panel">
           <div className="panel__head">{title}</div>
           <div className="panel__body sim-form-grid">
@@ -400,9 +394,6 @@ export default function Simulacao({ initialMode = 'ca', lockedMode = null, embed
 
         <div className="panel sim-circuit-panel">
           <div className="panel__head">Modelo Visual de Cargas</div>
-          <div className="panel-note">
-            O desenho representa ramos equivalentes em paralelo para estudo didático; não substitui um solver SPICE para topologias arbitrárias.
-          </div>
           <div className="sim-circuit-scroll">
             <DynamicCircuitSvg source={source} branches={circuit.branches} onRemoveBranch={id => changeQty(id, -1)} />
           </div>

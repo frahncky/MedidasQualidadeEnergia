@@ -288,10 +288,10 @@ export default function EnergiaDemandaFP() {
   const metrics = useMemo(() => buildMetrics(pqAnalysis, tarifa, fpTarget), [pqAnalysis, tarifa, fpTarget])
   const chartData = metrics.energyBars.length ? metrics.energyBars : placeholderRows()
   const pie = costPie(metrics)
-  const validityRows = [
-    ['Energia / custo', metrics.billingReady ? 'válido' : 'limitado', metrics.billingReady ? 'janela medida >= 15 min' : metrics.basis],
-    ['Correção de FP', metrics.billingReady ? 'financeira' : 'didática', metrics.billingReady ? 'usa custo da janela' : 'sem base tarifária suficiente'],
-    ['Setorização', 'não aplicada', 'importe coluna circuito/setor para rateio'],
+  const financialRows = [
+    ['Custo da janela', fmtMoney(metrics.cost), tarifa],
+    ['Economia', fmtMoney(metrics.savings), `FP ${fmt(fpTarget, 3)}`],
+    ['Banco capacitivo', fmtReactive(metrics.qCap), fmtMoney(metrics.capacitorCost)],
   ]
   const compareRows = scenarioRows(metrics, metrics.fpAvg, fpTarget)
   const installationOptions = useMemo(() => {
@@ -346,18 +346,6 @@ export default function EnergiaDemandaFP() {
         </button>
         <button className="btn btn-ghost" onClick={handleSimular}>Simular Correção de FP</button>
         <button className="btn btn-ghost" onClick={handleComparar}>Comparar Cenários</button>
-      </div>
-
-      <div className="guidance-strip">
-        <span className={`data-badge ${metrics.billingReady ? 'data-badge--medido' : 'data-badge--estimado'}`}>
-          {metrics.billingReady ? 'medido' : 'limitado'}
-        </span>
-        <strong>Validade econômica:</strong>
-        <span>
-          {metrics.billingReady
-            ? 'Custo, economia e banco de capacitores usam P_kW medido em janela mínima.'
-            : 'Os valores são úteis para ensino e triagem; importe histórico P_kW/Q_kVAr para análise tarifária.'}
-        </span>
       </div>
 
       {showEconomy && (
@@ -446,9 +434,6 @@ export default function EnergiaDemandaFP() {
         </ChartPanel>
         <div className="panel">
           <div className="panel__head">Análise de Tarifas e Custos</div>
-          <div className="panel-note">
-            Custo só é calculado quando há janela medida suficiente; caso contrário, a tela mantém os indicadores sem monetizar.
-          </div>
           <div className="panel__body" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 10, alignItems: 'center' }}>
             <ResponsiveContainer width="100%" height={150}><PieChart><Pie data={pie} dataKey="value" innerRadius={45} outerRadius={68}>{pie.map(p => <Cell key={p.name} fill={p.color} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
             <table className="tbl"><tbody>{pie.map(p => <tr key={p.name}><td><span style={{ color: p.color }}>■</span> {p.name}</td><td>{Number.isFinite(p.amount) ? `${p.value}%` : 'N/D'}</td><td>{fmtMoney(p.amount)}</td></tr>)}</tbody></table>
@@ -459,9 +444,6 @@ export default function EnergiaDemandaFP() {
       <div style={{ display: 'grid', gridTemplateColumns: '0.85fr 1.15fr 1fr 1fr', gap: 10, height: 320 }}>
         <div className="panel">
           <div className="panel__head">Monitoramento do Fator de Potência</div>
-          <div className="panel-note">
-            FP baixo aumenta circulação de reativo; dimensione o banco apenas com potência ativa medida e janela representativa.
-          </div>
           <div className="panel__body" style={{ textAlign: 'center' }}>
             <div style={{ height: 120, borderRadius: '130px 130px 0 0', background: 'conic-gradient(from 270deg, #ef4444 0 45deg, #f59e0b 45deg 95deg, #16a34a 95deg 180deg, transparent 180deg)' }} />
             <div style={{ fontSize: 30, fontWeight: 800 }}>{fmt(metrics.fpAvg, 3)} <span style={{ fontSize: 13 }}>ind.</span></div>
@@ -478,7 +460,6 @@ export default function EnergiaDemandaFP() {
               ['Energia ativa medida', metrics.billingReady ? 100 : 0, '#1d4ed8'],
               ['Rateio setorial importado', 0, '#f97316'],
             ].map(([n, p, c]) => <div key={n} style={{ marginBottom: 13 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><b>{n}</b><span>{metrics.billingReady ? `${p}%` : 'N/D'}</span></div><div className="progress-track" style={{ height: 10 }}><div style={{ width: `${p}%`, height: '100%', background: c, borderRadius: 8 }} /></div></div>)}
-            <div className="info-note">Para dividir energia por setor, importe uma coluna de circuito, alimentador ou centro de carga na aba Dados.</div>
           </div>
         </div>
         <ChartPanel title="Energia Acumulada">
@@ -488,7 +469,7 @@ export default function EnergiaDemandaFP() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, height: 250 }}>
         <DataTable title="Balanço de Energia" rows={balanceRows(metrics)} />
-        <DataTable title="Critérios de Uso" rows={validityRows} />
+        <DataTable title="Indicadores Financeiros" rows={financialRows} />
         <DataTable title="Comparativo de Cenários" rows={compareRows.slice(0, 4)} />
       </div>
     </div>

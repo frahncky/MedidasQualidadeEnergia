@@ -106,14 +106,6 @@ export default function QualidadeEnergia({ onNavigate }) {
     Math.max(0, pqAnalysis.nominalVoltage * 0.85),
     pqAnalysis.nominalVoltage * 1.15,
   ]
-  const sourceKind = pqAnalysis.sourceType?.includes('Simulação')
-    ? 'simulado'
-    : hasImportedDataset
-      ? 'importado'
-      : 'demonstração'
-  const qualityReading = pqAnalysis.conformity.score >= 95
-    ? 'A instalação está majoritariamente dentro dos limites configurados; investigue apenas eventos pontuais e tendência de FP.'
-    : 'Há desvios relevantes. Priorize itens não conformes, fase afetada e duração antes de propor correção.'
 
   function handleAtualizar() {
     setLoading(true)
@@ -241,12 +233,6 @@ export default function QualidadeEnergia({ onNavigate }) {
             <button className="btn btn-ghost btn-sm" onClick={() => onNavigate?.('relatorios')}>Relatório</button>
           </div>
 
-          <div className="guidance-strip">
-            <span className={`data-badge data-badge--${sourceKind}`}>{sourceKind}</span>
-            <strong>Leitura normativa:</strong>
-            <span>{qualityReading}</span>
-          </div>
-
           <div style={{ padding: '8px 12px', flexShrink: 0 }}>
             <div className="mini-kpi-row" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(118px,1fr))' }}>
               {miniKpis.map(k => (
@@ -264,9 +250,6 @@ export default function QualidadeEnergia({ onNavigate }) {
           <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gridTemplateRows: '320px 320px', gap: 14, padding: '0 14px', minHeight: 670 }}>
             <div className="panel">
               <div className="panel__head">Espectro Harmônico — {fase} — THD = {fmt(phaseData.thdV, 2)}%</div>
-              <div className="panel-note">
-                THD resume a soma das harmônicas em relação à fundamental. Barras acima do limite indicam distorção a investigar.
-              </div>
               <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
                 <ResponsiveContainer>
                   <BarChart data={harmonicRows} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -283,9 +266,6 @@ export default function QualidadeEnergia({ onNavigate }) {
 
             <div className="panel">
               <div className="panel__head">Tensão RMS — {fase} — {dateFrom} a {dateTo}</div>
-              <div className="panel-note">
-                Afundamentos ficam abaixo de 0,90 pu; elevações ficam acima de 1,10 pu. A duração define a criticidade.
-              </div>
               <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -304,9 +284,6 @@ export default function QualidadeEnergia({ onNavigate }) {
 
             <div className="panel">
               <div className="panel__head">Conformidade IEEE 519 / PRODIST</div>
-              <div className="panel-note">
-                O percentual considera apenas grandezas aplicáveis à base atual; itens sem coluna medida entram como N/D.
-              </div>
               <div style={{ height: 'calc(100% - 38px)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 8 }}>
                 <PieChart width={130} height={130}>
                   <Pie data={confPie} cx={60} cy={60} innerRadius={38} outerRadius={60} dataKey="value" paddingAngle={2}>
@@ -333,9 +310,6 @@ export default function QualidadeEnergia({ onNavigate }) {
 
             <div className="panel">
               <div className="panel__head">Fator de Potência ao Longo do Período</div>
-              <div className="panel-note">
-                FP abaixo de 0,92 sugere consumo reativo elevado; cruze com a aba Energia para dimensionar correção.
-              </div>
               <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -352,9 +326,6 @@ export default function QualidadeEnergia({ onNavigate }) {
 
             <div className="panel">
               <div className="panel__head">Flicker Pst — Série Temporal</div>
-              <div className="panel-note">
-                Pst acima de 1,0 indica variação perceptível de tensão; cargas com partida cíclica costumam ser causa provável.
-              </div>
               <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -371,9 +342,6 @@ export default function QualidadeEnergia({ onNavigate }) {
 
             <div className="panel">
               <div className="panel__head">Frequência do Sistema</div>
-              <div className="panel-note">
-                Desvios sustentados de frequência são sistêmicos; oscilações curtas podem indicar regime transitório ou base curta.
-              </div>
               <div style={{ height: 'calc(100% - 38px)', padding: 6 }}>
                 <ResponsiveContainer>
                   <LineChart data={series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>

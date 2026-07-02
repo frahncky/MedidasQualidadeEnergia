@@ -2549,12 +2549,6 @@ export default function Circuitos() {
         <button className={`inner-nav-btn${sub==='ca-tri'  ?' active':''}`} onClick={()=>setSub('ca-tri')}>⋈ CA Trifásico</button>
       </div>
 
-      <div className="guidance-strip">
-        <span className="data-badge data-badge--didatico">editor</span>
-        <strong>Função desta aba:</strong>
-        <span>montar e validar ligações, instrumentos e topologias didáticas. Para variar carga equivalente, fasores, potência e FP, use Simulação.</span>
-      </div>
-
       {sub==='cc'      && <SubCC />}
       {sub==='ca-mono' && <SubCAMono />}
       {sub==='ca-tri'  && <SubCATri />}

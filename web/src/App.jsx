@@ -131,18 +131,6 @@ const TABS = [
   },
 ]
 
-const GUIDED_FLOW = [
-  { id: 'dados', label: 'Dados', detail: 'importar e validar' },
-  { id: 'medidas', label: 'Medidas', detail: 'instrumentar' },
-  { id: 'circuitos', label: 'Editor', detail: 'montar esquema' },
-  { id: 'simulacao', label: 'Simulação', detail: 'variar parâmetros' },
-  { id: 'fasores', label: 'Fasores', detail: 'ler fases' },
-  { id: 'qualidade', label: 'Qualidade', detail: 'ver limites' },
-  { id: 'energia', label: 'Energia', detail: 'avaliar FP' },
-  { id: 'metrologia', label: 'Metrologia', detail: 'incerteza' },
-  { id: 'relatorios', label: 'Relatório', detail: 'documentar' },
-]
-
 function getPreferredTheme() {
   const stored = readStorage('smqe_theme')
   if (stored === 'light' || stored === 'dark') return stored
@@ -534,31 +522,6 @@ function AppShell() {
             </button>
           ))}
         </nav>
-
-        <section className="guided-flow" aria-label="Roteiro técnico-didático">
-          <div className="guided-flow__lead">
-            <strong>Roteiro guiado</strong>
-            <span>Dados &gt; medição &gt; análise &gt; relatório</span>
-          </div>
-          <div className="guided-flow__steps">
-            {GUIDED_FLOW.map((step, index) => {
-              const done = GUIDED_FLOW.findIndex(item => item.id === active) > index
-              const current = step.id === active
-              return (
-                <button
-                  key={step.id}
-                  className={`guided-step${current ? ' active' : ''}${done ? ' done' : ''}`}
-                  onClick={() => setActive(step.id)}
-                  aria-current={current ? 'step' : undefined}
-                >
-                  <span>{index + 1}</span>
-                  <strong>{step.label}</strong>
-                  <small>{step.detail}</small>
-                </button>
-              )
-            })}
-          </div>
-        </section>
 
         <main key={active} className="tab-content tab-enter">
           <ModuleErrorBoundary resetKey={active} onRecover={() => setActive('dashboard')}>

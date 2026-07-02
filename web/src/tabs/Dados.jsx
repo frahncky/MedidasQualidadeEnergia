@@ -641,12 +641,6 @@ export default function Dados() {
       {/* Main area */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
 
-        <div className="guidance-strip">
-          <span className={`data-badge ${hasParsedData ? 'data-badge--importado' : 'data-badge--sem-base'}`}>{hasParsedData ? 'importado' : 'sem base'}</span>
-          <strong>Linhagem dos dados:</strong>
-          <span>cada importação preserva origem, formato, período e amostra. Bases de demonstração ajudam a explorar o app, mas não substituem uma medição real em laudo.</span>
-        </div>
-
         {/* Import panel */}
         <div className="panel">
           <div className="panel__head">Importar Dados</div>

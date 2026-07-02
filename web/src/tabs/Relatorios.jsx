@@ -276,13 +276,6 @@ export default function Relatorios({ onNavigate }) {
           </button>
           {generated && <span style={{ color: '#16a34a', fontWeight: 700, marginLeft: 8 }}>✓ {totalPages} páginas geradas</span>}
         </div>
-        <div className="panel__body" style={{ paddingTop: 0 }}>
-          <div className="guidance-strip">
-            <span className="data-badge data-badge--estimado">{generated ? 'gerado' : 'rascunho'}</span>
-            <strong>Relatório técnico:</strong>
-            <span>exporta apenas seções, dados, normas e figuras já presentes na análise; assinatura, agendamento e envio exigem fluxo documental próprio.</span>
-          </div>
-        </div>
       </div>
 
       {/* Config 4 columns */}
